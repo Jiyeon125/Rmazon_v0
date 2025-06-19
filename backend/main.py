@@ -8,12 +8,17 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction import text
 import os
 import shutil
 from typing import List, Optional, Dict
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
+class Keyword(BaseModel):
+    word: str
+    count: int
+
 class PredictionRequest(BaseModel):
     price: float
     review_count: int
@@ -36,7 +41,7 @@ class Product(BaseModel):
 class ReviewAnalysis(BaseModel):
     overall_sentiment: str
     sentiment_distribution: Dict[str, int]
-    top_keywords: List[Dict[str, int]]
+    top_keywords: List[Keyword]
     negative_concerns: List[str]
     summary: str
     review_count: int
@@ -92,9 +97,9 @@ def load_data_and_train_models():
     # 🚨 데이터 클리닝 및 전처리 로직 개선
     df.drop_duplicates(subset=['product_id'], keep='first', inplace=True)
     
-    # 텍스트 컬럼의 NaN 값을 빈 문자열로 대체
-    df['review_title'].fillna('', inplace=True)
-    df['review_content'].fillna('', inplace=True)
+    # 텍스트 컬럼의 NaN 값을 빈 문자열로 대체 (FutureWarning 수정)
+    df['review_title'] = df['review_title'].fillna('')
+    df['review_content'] = df['review_content'].fillna('')
 
     # 숫자형 컬럼 처리
     df['discounted_price'] = pd.to_numeric(df['discounted_price'], errors='coerce')
@@ -237,14 +242,20 @@ def advanced_review_analysis(reviews: List[str]) -> Dict:
 
     # 키워드 (간단한 빈도수 기반)
     from collections import Counter
-    keywords = [item for item in Counter(all_words).most_common(5) if item[0] not in positive_words and item[0] not in negative_words]
+    # 불용어 리스트 확장
+    stop_words_list = list(text.ENGLISH_STOP_WORDS) + ['product', 'amazon', 'use', 'get', 'it', 'i']
+    
+    keywords_with_counts = [
+        (word, count) for word, count in Counter(all_words).most_common(20) 
+        if word.isalpha() and len(word) > 2 and word not in stop_words_list
+    ]
 
     return {
         "overall_sentiment": overall,
         "sentiment_distribution": sentiments,
-        "top_keywords": [{"word": w, "count": c} for w, c in keywords],
+        "top_keywords": [{"word": w, "count": c} for w, c in keywords_with_counts[:5]], # 상위 5개만 선택
         "negative_concerns": [r for r in reviews if any(w in r.lower() for w in negative_words)][:2],
-        "summary": f"전체적으로 {overall}적인 평가가 많습니다. 주요 키워드는 {', '.join([k[0] for k in keywords])} 등입니다.",
+        "summary": f"전체적으로 {overall}적인 평가가 많습니다. 주요 키워드는 {', '.join([k[0] for k in keywords_with_counts[:5]])} 등입니다.",
         "review_count": len(reviews)
     }
 
