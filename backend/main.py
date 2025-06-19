@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
@@ -10,6 +10,7 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 import os
 import shutil
+from typing import List, Optional
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
@@ -24,6 +25,10 @@ class PredictionResponse(BaseModel):
 
 class SimilarityRequest(BaseModel):
     product_id: str
+
+class Product(BaseModel):
+    product_id: str
+    product_name: str
 
 # --- FastAPI 애플리케이션 설정 ---
 app = FastAPI()
@@ -53,20 +58,25 @@ def load_data_and_train_models():
         df_products = pd.DataFrame()
         return
 
-    # 1. 데이터 로드
     df = pd.read_csv(DATA_FILE_PATH)
     
-    # 2. 필수 컬럼 확인
     required_columns = ['product_id', 'product_name', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"필수 컬럼이 누락되었습니다: {', '.join(missing_columns)}")
 
-    df = df[required_columns].dropna()
+    # 🚨 중복 product_id 제거 로직 추가
+    df.drop_duplicates(subset=['product_id'], keep='first', inplace=True)
+
+    df = df[required_columns].dropna(subset=[col for col in required_columns if col != 'product_id'])
     df['rating_count'] = pd.to_numeric(df['rating_count'], errors='coerce').fillna(0)
     df = df[df['rating_count'] > 0]
     df.reset_index(drop=True, inplace=True)
     df_products = df.copy()
+
+    if df_products.empty:
+        print("⚠️ 처리할 데이터가 없습니다. 모델 학습을 건너뜁니다.")
+        return
 
     # 3. 릿지 회귀 모델 학습 (별점 예측용)
     X_ridge = df[['discounted_price', 'rating_count', 'category_cleaned']]
@@ -86,7 +96,7 @@ def load_data_and_train_models():
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
     tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text'])
     print("✅ TF-IDF model training complete!")
-    print(f"📈 Total {len(df_products)} products loaded and models trained.")
+    print(f"📈 Total {len(df_products)} unique products loaded and models trained.")
 
 
 # --- 서버 시작 시 실행될 로직 ---
@@ -132,11 +142,27 @@ async def upload_csv(file: UploadFile = File(...)):
     finally:
         await file.close()
 
-@app.get("/products")
-def get_products():
+@app.get("/categories", response_model=List[str])
+def get_categories():
+    """사용 가능한 모든 카테고리 목록을 반환합니다."""
     if df_products.empty:
         return []
-    # product_id와 product_name만 프론트엔드로 전송
+    return sorted(df_products['category_cleaned'].unique().tolist())
+
+@app.get("/products", response_model=List[Product])
+def get_products(category: Optional[str] = Query(None)):
+    """
+    상품 목록을 반환합니다.
+    - category 쿼리 파라미터가 있으면 해당 카테고리의 상품만 필터링합니다.
+    """
+    if df_products.empty:
+        return []
+    
+    if category:
+        filtered_df = df_products[df_products['category_cleaned'] == category]
+        return filtered_df[['product_id', 'product_name']].to_dict('records')
+    
+    # 카테고리가 없으면 전체 목록 반환 (관리용 또는 다른 용도로 유지)
     return df_products[['product_id', 'product_name']].to_dict('records')
 
 @app.post("/search-similarity")

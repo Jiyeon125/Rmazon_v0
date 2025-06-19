@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BarChart, Search, AlertCircle, Loader2, Star } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 
 interface Product {
   product_id: string;
@@ -20,30 +21,61 @@ interface SimilarityResult extends Product {
 }
 
 export default function SearchPage() {
+  const [categories, setCategories] = useState<string[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingProducts, setIsFetchingProducts] = useState(true);
+  const [isFetchingData, setIsFetchingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SimilarityResult[]>([]);
+  const [categorySearchTerm, setCategorySearchTerm] = useState("");
 
+  // 1. 초기 카테고리 목록 로드
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchCategories = async () => {
+      setIsFetchingData(true);
+      setError(null);
       try {
-        const response = await fetch("http://127.0.0.1:8000/products");
-        if (!response.ok) {
-          throw new Error("상품 목록을 불러오는 데 실패했습니다.");
-        }
+        const response = await fetch("http://127.0.0.1:8000/categories");
+        if (!response.ok) throw new Error("카테고리 목록 로딩 실패");
+        const data = await response.json();
+        setCategories(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "카테고리 로딩 중 오류");
+      } finally {
+        setIsFetchingData(false);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // 2. 카테고리 선택 시 상품 목록 로드
+  useEffect(() => {
+    if (!selectedCategory) {
+      setProducts([]);
+      setSelectedProductId(null);
+      return;
+    }
+
+    const fetchProducts = async () => {
+      setIsFetchingData(true);
+      setError(null);
+      setResults([]);
+      try {
+        const response = await fetch(`http://127.0.0.1:8000/products?category=${encodeURIComponent(selectedCategory)}`);
+        if (!response.ok) throw new Error("상품 목록 로딩 실패");
         const data = await response.json();
         setProducts(data);
+        setSelectedProductId(null); // 카테고리 변경 시 상품 선택 초기화
       } catch (err) {
-        setError(err instanceof Error ? err.message : "상품 목록 로딩 중 오류 발생");
+        setError(err instanceof Error ? err.message : "상품 목록 로딩 중 오류");
       } finally {
-        setIsFetchingProducts(false);
+        setIsFetchingData(false);
       }
     };
     fetchProducts();
-  }, []);
+  }, [selectedCategory]);
 
   const handleSearch = async () => {
     if (!selectedProductId) {
@@ -76,7 +108,8 @@ export default function SearchPage() {
       setIsLoading(false);
     }
   };
-  
+
+  const filteredCategories = categories.filter(c => c.toLowerCase().includes(categorySearchTerm.toLowerCase()));
   const selectedProductName = products.find(p => p.product_id === selectedProductId)?.product_name || "선택된 상품 없음";
 
   return (
@@ -90,13 +123,52 @@ export default function SearchPage() {
         <div className="lg:col-span-1 flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>상품 선택</CardTitle>
+              <CardTitle>1. 카테고리 선택</CardTitle>
+              <CardDescription>분석할 상품의 카테고리를 선택하세요.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                placeholder="카테고리 검색..."
+                value={categorySearchTerm}
+                onChange={(e) => setCategorySearchTerm(e.target.value)}
+                disabled={isFetchingData && categories.length === 0}
+              />
+              <div className="max-h-60 overflow-y-auto space-y-2 pr-2">
+                {isFetchingData && categories.length === 0 ? (
+                  <div className="flex items-center justify-center p-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredCategories.length > 0 ? (
+                  filteredCategories.map((category) => (
+                    <Button
+                      key={category}
+                      variant={selectedCategory === category ? "default" : "outline"}
+                      className="w-full justify-start text-left h-auto whitespace-normal"
+                      onClick={() => setSelectedCategory(category)}
+                    >
+                      {category}
+                    </Button>
+                  ))
+                ) : (
+                  <p className="text-muted-foreground text-sm text-center p-4">해당 카테고리가 없습니다.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>2. 상품 선택</CardTitle>
               <CardDescription>분석할 기준 상품을 선택하세요.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Select onValueChange={setSelectedProductId} disabled={isFetchingProducts}>
+              <Select
+                onValueChange={setSelectedProductId}
+                disabled={!selectedCategory || products.length === 0 || isFetchingData}
+                value={selectedProductId || ""}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder={isFetchingProducts ? "상품 목록 로딩 중..." : "상품을 선택하세요..."} />
+                  <SelectValue placeholder={!selectedCategory ? "카테고리를 먼저 선택하세요" : (isFetchingData ? "상품 로딩 중..." : "상품을 선택하세요...")} />
                 </SelectTrigger>
                 <SelectContent>
                   {products.map((product) => (
@@ -109,8 +181,8 @@ export default function SearchPage() {
             </CardContent>
           </Card>
 
-          <Button onClick={handleSearch} disabled={isLoading || isFetchingProducts || !selectedProductId} className="w-full">
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+          <Button onClick={handleSearch} disabled={isLoading || isFetchingData || !selectedProductId} className="w-full py-6 text-lg">
+            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
             {isLoading ? "분석 중..." : "유사도 분석 실행"}
           </Button>
 
@@ -124,7 +196,7 @@ export default function SearchPage() {
 
         {/* Right Panel: Analysis Results */}
         <div className="lg:col-span-2">
-          <Card className="h-full">
+           <Card className="h-full">
             <CardHeader>
               <div className="flex items-center gap-3">
                   <BarChart className="w-6 h-6 text-gray-500" />
