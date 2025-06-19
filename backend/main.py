@@ -46,22 +46,18 @@ def load_model_and_data():
     csv_path = os.path.join("data", "cleaned_amazon_0519.csv")
     df = pd.read_csv(csv_path)
 
-    # 디버깅을 위해 실제 컬럼 이름 출력
-    print("✅ CSV file loaded successfully. Checking columns...")
-    print("CSV Columns:", df.columns.tolist())
-
-    # 2. 필요한 컬럼만 선택하고 결측치 처리
-    df = df[['Price', 'Review_count', 'Category', 'Star']].dropna()
-    df = df[df['Review_count'] > 0] # 리뷰 수가 0인 데이터는 제외
+    # 2. 올바른 컬럼 이름으로 필요한 컬럼만 선택하고 결측치 처리
+    df = df[['discounted_price', 'rating_count', 'category_cleaned', 'rating']].dropna()
+    df = df[df['rating_count'] > 0] # 리뷰 수가 0인 데이터는 제외
 
     # 3. 특성(X)과 타겟(y) 분리
-    X = df[['Price', 'Review_count', 'Category']]
-    y = df['Star']
+    X = df[['discounted_price', 'rating_count', 'category_cleaned']]
+    y = df['rating']
 
     # 4. 데이터 전처리 파이프라인 구축
     # 수치형 특성은 StandardScaler로, 범주형 특성은 OneHotEncoder로 변환합니다.
-    numeric_features = ['Price', 'Review_count']
-    categorical_features = ['Category']
+    numeric_features = ['discounted_price', 'rating_count']
+    categorical_features = ['category_cleaned']
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -76,7 +72,7 @@ def load_model_and_data():
     # 6. 모델 학습
     ml_pipe.fit(X, y)
     print("✅ Model training complete!")
-    print(f"📈 Available categories: {X['Category'].unique().tolist()}")
+    print(f"📈 Available categories: {X['category_cleaned'].unique().tolist()}")
 
 
 # --- API 엔드포인트 정의 ---
@@ -86,8 +82,13 @@ def read_root():
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict_star_rating(request: PredictionRequest):
-    # 1. 요청 데이터를 DataFrame으로 변환
-    input_data = pd.DataFrame([request.dict()])
+    # 1. 요청 데이터를 DataFrame으로 변환 (컬럼 이름 매칭)
+    input_data_dict = {
+        'discounted_price': request.price,
+        'rating_count': request.review_count,
+        'category_cleaned': request.category
+    }
+    input_data = pd.DataFrame([input_data_dict])
     
     # 2. 학습된 파이프라인을 사용해 예측 수행
     predicted_star = ml_pipe.predict(input_data)[0]
