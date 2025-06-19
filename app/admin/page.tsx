@@ -35,20 +35,18 @@ export default function AdminPage() {
     formData.append("file", file);
 
     try {
-      // 나중에 실제 백엔드 엔드포인트로 교체될 부분입니다.
-      // const response = await fetch("http://127.0.0.1:8000/upload-csv", {
-      //   method: "POST",
-      //   body: formData,
-      // });
+      const response = await fetch("http://127.0.0.1:8000/upload-csv", {
+        method: "POST",
+        body: formData,
+      });
 
-      // 임시로 성공을 시뮬레이션합니다.
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // if (!response.ok) {
-      //   throw new Error("파일 업로드에 실패했습니다. 파일 형식과 내용을 확인해주세요.");
-      // }
-
-      setSuccess("파일이 성공적으로 업로드되어 데이터가 업데이트되었습니다.");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "파일 업로드에 실패했습니다. 파일 형식과 내용을 확인해주세요.");
+      }
+      
+      const result = await response.json();
+      setSuccess(`파일이 성공적으로 업로드되어 ${result.rows}개의 행이 처리되었습니다.`);
       setFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
