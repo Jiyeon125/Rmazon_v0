@@ -46,6 +46,10 @@ def load_model_and_data():
     csv_path = os.path.join("data", "cleaned_amazon_0519.csv")
     df = pd.read_csv(csv_path)
 
+    # 디버깅을 위해 실제 컬럼 이름 출력
+    print("✅ CSV file loaded successfully. Checking columns...")
+    print("CSV Columns:", df.columns.tolist())
+
     # 2. 필요한 컬럼만 선택하고 결측치 처리
     df = df[['Price', 'Review_count', 'Category', 'Star']].dropna()
     df = df[df['Review_count'] > 0] # 리뷰 수가 0인 데이터는 제외
