@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag } from "lucide-react"
+import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag, ChevronsUpDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
 
 // --- 데이터 타입 정의 ---
 
@@ -31,6 +33,11 @@ interface SimilarityResult {
   review_analysis: ReviewAnalysis;
 }
 
+interface PriceRange {
+  min_price: number;
+  max_price: number;
+}
+
 // --- 컴포넌트 ---
 
 const SentimentIcon = ({ sentiment }: { sentiment: ReviewAnalysis['overall_sentiment'] }) => {
@@ -42,20 +49,80 @@ const SentimentIcon = ({ sentiment }: { sentiment: ReviewAnalysis['overall_senti
 export default function SearchPage() {
   // --- 상태 관리 ---
   const [description, setDescription] = useState("A high-quality, wireless headphone with noise-cancelling feature and long battery life. Comes with a carrying case.");
-  const [price, setPrice] = useState("199.99");
-  const [discount, setDiscount] = useState("15");
+  
+  // 카테고리 상태
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // 가격 상태
+  const [priceRange, setPriceRange] = useState<PriceRange>({ min_price: 10, max_price: 1000 });
+  const [price, setPrice] = useState(500);
+
+  // 할인율 상태
+  const [discount, setDiscount] = useState(15);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SimilarityResult[]>([]);
 
+  // --- 데이터 로딩 Effect ---
+  // 1. 초기 카테고리 목록 로드
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setError(null);
+        setIsDataLoading(true);
+        const response = await fetch("http://127.0.0.1:8000/categories");
+        if (!response.ok) throw new Error("카테고리 목록 로딩 실패");
+        const data: string[] = await response.json();
+        setCategories(data);
+        if (data.length > 0) {
+          setSelectedCategory(data[0]); // 첫번째 카테고리를 기본으로 선택
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "카테고리 로딩 중 오류");
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // 2. 카테고리 선택 시 가격 범위 로드
+  useEffect(() => {
+    if (!selectedCategory) return;
+
+    const fetchPriceRange = async () => {
+      try {
+        setError(null);
+        setIsDataLoading(true);
+        const response = await fetch(`http://127.0.0.1:8000/category-price-range?category=${encodeURIComponent(selectedCategory)}`);
+        if (!response.ok) throw new Error("가격 범위 로딩 실패");
+        const data: PriceRange = await response.json();
+        // 가격 범위가 유효한지 확인
+        if (data.min_price < data.max_price) {
+            setPriceRange(data);
+            // 가격을 범위의 중간값으로 설정
+            setPrice(Math.round((data.min_price + data.max_price) / 2));
+        } else { // 범위가 유효하지 않으면 기본값 사용
+            const defaultRange = { min_price: 10, max_price: 1000 };
+            setPriceRange(defaultRange);
+            setPrice(Math.round((defaultRange.min_price + defaultRange.max_price) / 2));
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "가격 범위 로딩 중 오류");
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
+    fetchPriceRange();
+  }, [selectedCategory]);
+
   // --- 이벤트 핸들러 ---
   const handleSearch = async () => {
-    const priceNum = parseFloat(price);
-    const discountNum = parseFloat(discount);
-
-    if (!description.trim() || isNaN(priceNum) || isNaN(discountNum)) {
-      setError("모든 입력 필드를 올바르게 채워주세요.");
+    if (!description.trim() || !selectedCategory) {
+      setError("상품 설명과 카테고리를 모두 입력해주세요.");
       return;
     }
     
@@ -69,8 +136,9 @@ export default function SearchPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description: description,
-          price: priceNum,
-          discount_percentage: discountNum,
+          price: price,
+          discount_percentage: discount,
+          category: selectedCategory,
         }),
       });
 
@@ -104,7 +172,26 @@ export default function SearchPage() {
               <CardTitle>가상 상품 정보 입력</CardTitle>
               <CardDescription>분석하고 싶은 가상 상품의 정보를 입력하세요.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="category">카테고리</Label>
+                 <Select
+                    value={selectedCategory || ''}
+                    onValueChange={setSelectedCategory}
+                    disabled={isDataLoading || categories.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="카테고리 선택..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="description">상품 설명</Label>
                 <Textarea 
@@ -112,35 +199,44 @@ export default function SearchPage() {
                   placeholder="예: 고품질 무선 노이즈캔슬링 헤드폰..." 
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  rows={5}
+                  rows={4}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="price">정가 (₹)</Label>
-                <Input 
-                  id="price" 
-                  type="number"
-                  placeholder="예: 199.99" 
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                    <Label htmlFor="price">정가 (₹)</Label>
+                    <span className="text-sm font-medium text-muted-foreground">₹{price.toLocaleString()}</span>
+                </div>
+                <Slider
+                  id="price"
+                  min={priceRange.min_price}
+                  max={priceRange.max_price}
+                  step={(priceRange.max_price - priceRange.min_price) / 100}
+                  value={[price]}
+                  onValueChange={(value) => setPrice(value[0])}
+                  disabled={isDataLoading}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="discount">할인율 (%)</Label>
-                <Input 
-                  id="discount" 
-                  type="number"
-                  placeholder="예: 15"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                    <Label htmlFor="discount">할인율 (%)</Label>
+                    <span className="text-sm font-medium text-muted-foreground">{discount}%</span>
+                </div>
+                <Slider
+                  id="discount"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={[discount]}
+                  onValueChange={(value) => setDiscount(value[0])}
                 />
               </div>
             </CardContent>
           </Card>
           
-          <Button onClick={handleSearch} disabled={isLoading} className="w-full py-6 text-lg">
-            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
-            {isLoading ? "분석 중..." : "유사 상품 분석"}
+          <Button onClick={handleSearch} disabled={isLoading || isDataLoading || !selectedCategory} className="w-full py-6 text-lg">
+            {isLoading || isDataLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
+            {isLoading ? "분석 중..." : (isDataLoading ? "데이터 로딩 중..." : "유사 상품 분석")}
           </Button>
 
           {error && (

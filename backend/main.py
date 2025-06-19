@@ -27,6 +27,7 @@ class SimilarityRequest(BaseModel):
     description: str
     price: float
     discount_percentage: float
+    category: str
 
 class Product(BaseModel):
     product_id: str
@@ -48,6 +49,10 @@ class SimilarityResult(BaseModel):
     rating: float
     rating_count: int
     review_analysis: ReviewAnalysis
+
+class PriceRangeResponse(BaseModel):
+    min_price: float
+    max_price: float
 
 # --- FastAPI 애플리케이션 설정 ---
 app = FastAPI()
@@ -249,6 +254,24 @@ def calculate_price_similarity(price1: float, price2: float) -> float:
    avg = (price1 + price2) / 2
    return max(0, 1 - diff / avg)
 
+@app.get("/category-price-range", response_model=PriceRangeResponse)
+def get_category_price_range(category: str = Query(...)):
+    """특정 카테고리의 최소 및 최대 가격을 반환합니다."""
+    if df_products.empty:
+        raise HTTPException(status_code=503, detail="서버 데이터가 준비되지 않았습니다.")
+    
+    filtered_df = df_products[df_products['category_cleaned'] == category]
+    
+    if filtered_df.empty:
+        # 해당 카테고리에 상품이 없으면 전체 데이터의 가격 범위를 기본값으로 제공
+        min_price = df_products['discounted_price'].min()
+        max_price = df_products['discounted_price'].max()
+    else:
+        min_price = filtered_df['discounted_price'].min()
+        max_price = filtered_df['discounted_price'].max()
+
+    return {"min_price": min_price, "max_price": max_price}
+
 @app.post("/search-similarity", response_model=List[SimilarityResult])
 def search_similarity(request: SimilarityRequest):
     if df_products.empty or tfidf_matrix is None:
@@ -263,17 +286,21 @@ def search_similarity(request: SimilarityRequest):
     price_similarities = df_products['discounted_price'].apply(lambda x: calculate_price_similarity(request_discounted_price, x))
     discount_similarities = df_products['discount_percentage'].apply(lambda x: 1 - abs(request.discount_percentage - x) / 100)
 
-    # 3. 최종 유사도 계산 (가중치 적용)
+    # 3. 카테고리 일치 점수 계산 (매우 중요한 요소)
+    category_match_score = (df_products['category_cleaned'] == request.category).astype(int)
+
+    # 4. 최종 유사도 계산 (가중치 조정: 카테고리 일치에 높은 가중치 부여)
     df_products['similarity'] = (
-        text_similarities * 0.6 + 
-        price_similarities * 0.3 + 
-        discount_similarities * 0.1
+        text_similarities * 0.4 + 
+        price_similarities * 0.2 + 
+        discount_similarities * 0.1 +
+        category_match_score * 0.3  # 카테고리 가중치 추가
     )
     
-    # 4. 상위 3개 상품 선정
+    # 5. 상위 3개 상품 선정
     top_3_products = df_products.sort_values(by='similarity', ascending=False).head(3)
 
-    # 5. 결과 목록 생성 (리뷰 분석 포함)
+    # 6. 결과 목록 생성 (리뷰 분석 포함)
     results = []
     for _, product in top_3_products.iterrows():
         # 리뷰 데이터 추출
