@@ -42,7 +42,7 @@ ml_pipe = None
 tfidf_vectorizer = None
 tfidf_matrix = None
 df_products = pd.DataFrame()
-DATA_FILE_PATH = os.path.join("backend", "data", "cleaned_amazon_0519.csv")
+DATA_FILE_PATH = os.path.join("data", "cleaned_amazon_0519.csv")
 
 # --- 핵심 로직: 데이터 로딩 및 모델 학습 ---
 def load_data_and_train_models():

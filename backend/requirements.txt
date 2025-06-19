@@ -2,4 +2,5 @@ fastapi
 uvicorn
 pandas
 scikit-learn
-python-dotenv 
+python-dotenv
+python-multipart 
