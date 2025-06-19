@@ -21,7 +21,6 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
-  ThumbsUp,
   ThumbsDown,
   TrendingUp,
   MessageSquare,
@@ -50,12 +49,27 @@ function calculatePriceSimilarity(price1: number, price2: number): number {
   return Math.max(0, 1 - diff / avg)
 }
 
-//review_title 기반 리뷰 수 계산
-function countReviewsByTitle(product: any): number {
-  if (!product.review_title || typeof product.review_title !== "string") return 0;
+//review_title과 review_content를 모두 종합하여 실제 분석 가능한 리뷰 수를 계산
+function countAnalyzableReviews(product: any): number {
+  const reviews = new Set<string>()
 
-  const parts = product.review_title.split(",").map((part: string) => part.trim()).filter((part: string) => part.length > 0);
-  return parts.length;
+  if (product.review_title && typeof product.review_title === "string") {
+    const titles = product.review_title
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 5) // 최소 5자 이상
+    titles.forEach((t: string) => reviews.add(t))
+  }
+
+  if (product.review_content && typeof product.review_content === "string") {
+    const contents = product.review_content
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 10) // 최소 10자 이상
+    contents.forEach((c: string) => reviews.add(c))
+  }
+
+  return reviews.size
 }
 
 export default function ProductExplorer() {
@@ -228,15 +242,20 @@ export default function ProductExplorer() {
     }
 
     setIsSearching(true)
-    setWarnings([])
+    const newWarnings: string[] = []
 
     // Filter products by category
     const categoryProducts = currentData.filter((p) => p.category === selectedCategory)
 
+    if (categoryProducts.length === 0) {
+        setWarnings(["선택한 카테고리에 해당하는 제품이 없습니다. 다른 카테고리를 선택해 주세요."]);
+        setResults([]);
+        setIsSearching(false);
+        return;
+    }
+
     if (categoryProducts.length < 3) {
-      setWarnings(["선택한 카테고리 내 제품 수가 너무 적습니다. 다른 카테고리를 선택해 주세요."])
-      setIsSearching(false)
-      return
+      newWarnings.push("⚠️ 선택한 카테고리 내 제품 수가 적어 분석의 정확도가 낮을 수 있습니다.")
     }
 
     // Calculate similarities
@@ -253,7 +272,7 @@ export default function ProductExplorer() {
         similarity: totalSimilarity,
         textSimilarity: textSim,
         priceSimilarity: priceSim,
-        reviewCountByTitle: countReviewsByTitle(product),
+        reviewCountByTitle: countAnalyzableReviews(product),
       }
     })
 
@@ -261,10 +280,9 @@ export default function ProductExplorer() {
     const topMatches = productsWithSimilarity.sort((a, b) => b.similarity - a.similarity).slice(0, 3)
 
     // Check for warnings
-    const avgSimilarity = topMatches.reduce((sum, p) => sum + p.textSimilarity, 0) / topMatches.length
-    const maxSimilarity = Math.max(...topMatches.map((p) => p.textSimilarity))
+    const avgSimilarity = topMatches.length > 0 ? topMatches.reduce((sum, p) => sum + p.textSimilarity, 0) / topMatches.length : 0
+    const maxSimilarity = topMatches.length > 0 ? Math.max(...topMatches.map((p) => p.textSimilarity)) : 0
 
-    const newWarnings = []
     if (avgSimilarity < 0.1) {
       newWarnings.push(
         "⚠️ 입력한 설명이 다른 제품들과 전반적으로 크게 다릅니다. 유사 제품 목록의 정확도가 낮을 수 있습니다. (평균 유사도 낮음)\n권장: 설명을 더 구체적으로 작성해 보세요.",
@@ -283,46 +301,34 @@ export default function ProductExplorer() {
 
   // CSV에서 실제 리뷰 데이터 추출 (review_title, review_content만 사용)
   const extractRealReviews = (product: any): string[] => {
-    const reviews: string[] = []
+    const reviews = new Set<string>()
 
-    // review_title과 review_content만 사용
+    // review_title에서 리뷰 추출 (쉼표로 분리)
     if (product.review_title && typeof product.review_title === "string") {
-      const title = product.review_title.trim()
-      if (title && title.length > 5) {
-        // 최소 5자 이상
-        reviews.push(title)
-      }
+      const titles = product.review_title
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 5) // 최소 5자 이상
+      titles.forEach((t: string) => reviews.add(t))
     }
 
+    // review_content에서 리뷰 추출 (쉼표로 분리)
     if (product.review_content && typeof product.review_content === "string") {
-      const content = product.review_content.trim()
-      if (content && content.length > 10) {
-        // 최소 10자 이상
-        reviews.push(content)
-      }
+      const contents = product.review_content
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 10) // 최소 10자 이상
+      contents.forEach((c: string) => reviews.add(c))
     }
 
-    // 제목과 내용을 합쳐서 하나의 완전한 리뷰로 만들기 (둘 다 있는 경우)
-    if (
-      product.review_title &&
-      product.review_content &&
-      typeof product.review_title === "string" &&
-      typeof product.review_content === "string"
-    ) {
-      const title = product.review_title.trim()
-      const content = product.review_content.trim()
-      if (title && content && title.length > 5 && content.length > 10) {
-        const combinedReview = `${title}. ${content}`
-        reviews.push(combinedReview)
-      }
+    const uniqueReviews = Array.from(reviews)
+
+    console.log(`${product.product_name}에서 추출된 리뷰:`, uniqueReviews.length, "개")
+    if (uniqueReviews.length > 0) {
+      console.log("리뷰 샘플:", uniqueReviews[0].substring(0, 100) + "...")
     }
 
-    console.log(`${product.product_name}에서 추출된 리뷰:`, reviews.length, "개")
-    if (reviews.length > 0) {
-      console.log("리뷰 샘플:", reviews[0].substring(0, 100) + "...")
-    }
-
-    return reviews.slice(0, 20) // 최대 20개 리뷰만 분석
+    return uniqueReviews
   }
 
   // 고급 리뷰 분석 함수 (CSV 데이터만 사용)
@@ -361,8 +367,6 @@ export default function ProductExplorer() {
           confidence: 0,
           sentiment_distribution: { positive: 0, negative: 0, neutral: 0 },
           top_keywords: [],
-          topic_analysis: {},
-          positive_highlights: [],
           negative_concerns: [],
           summary: "리뷰 분석 중 오류가 발생했습니다.",
           isRealData: false,
@@ -767,20 +771,7 @@ export default function ProductExplorer() {
                                   )}
 
                                   {/* 긍정/부정 하이라이트 */}
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      {summary.positive_highlights.length > 0 && (
-                                          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                                              <h5 className="font-semibold text-sm mb-2 text-green-800 flex items-center gap-2">
-                                                  <ThumbsUp className="h-4 w-4" />
-                                                  긍정적 하이라이트
-                                              </h5>
-                                              <ul className="space-y-2 text-xs text-green-700">
-                                                  {summary.positive_highlights.slice(0, 2).map((hl: string, i: number) => (
-                                                      <li key={i} className="leading-relaxed">"{hl}"</li>
-                                                  ))}
-                                              </ul>
-                                          </div>
-                                      )}
+                                  <div className="grid grid-cols-1 gap-4">
                                       {summary.negative_concerns.length > 0 && (
                                           <div className="p-4 bg-red-50 rounded-lg border border-red-200">
                                               <h5 className="font-semibold text-sm mb-2 text-red-800 flex items-center gap-2">
