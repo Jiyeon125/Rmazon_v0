@@ -216,6 +216,10 @@ export default function SearchPage() {
                   onValueChange={(value) => setPrice(value[0])}
                   disabled={isDataLoading}
                 />
+                <div className="flex justify-between text-xs text-muted-foreground px-1">
+                  <span>최소: ₹{priceRange.min_price.toLocaleString()}</span>
+                  <span>최대: ₹{priceRange.max_price.toLocaleString()}</span>
+                </div>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
