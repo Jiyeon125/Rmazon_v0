@@ -54,7 +54,7 @@ function calculatePriceSimilarity(price1: number, price2: number): number {
 function countReviewsByTitle(product: any): number {
   if (!product.review_title || typeof product.review_title !== "string") return 0;
 
-  const parts = product.review_title.split(",").map(part => part.trim()).filter(part => part.length > 0);
+  const parts = product.review_title.split(",").map((part: string) => part.trim()).filter((part: string) => part.length > 0);
   return parts.length;
 }
 
@@ -107,7 +107,7 @@ export default function ProductExplorer() {
       const line = lines[i].trim()
       if (!line) continue
 
-      const values = []
+      const values: string[] = []
       let current = ""
       let inQuotes = false
 
@@ -345,7 +345,7 @@ export default function ProductExplorer() {
       console.log(`${product.product_name}에서 ${realReviews.length}개의 리뷰를 발견했습니다.`)
 
       // 고급 텍스트 분석 실행
-      const analysis = advancedReviewAnalysis(realReviews)
+      const analysis: any = advancedReviewAnalysis(realReviews)
 
       // 실제 리뷰 사용 여부 표시
       analysis.isRealData = realReviews.length > 0
@@ -692,41 +692,134 @@ export default function ProductExplorer() {
                             </div>
                           )}
 
-                          {reviewSummaries[`${product.product_name}_${product.category}`] && (
-                            <div className="space-y-4">
-                              {/* 데이터 소스 */}
-                              <div className="flex items-center gap-2 text-xs">
-                                <Badge
-                                  variant={
-                                    reviewSummaries[`${product.product_name}_${product.category}`].isRealData &&
-                                    reviewSummaries[`${product.product_name}_${product.category}`].reviewCount > 0
-                                      ? "default"
-                                      : "secondary"
-                                  }
-                                  className="text-xs"
-                                >
-                                  {reviewSummaries[`${product.product_name}_${product.category}`].isRealData &&
-                                  reviewSummaries[`${product.product_name}_${product.category}`].reviewCount > 0
-                                    ? "CSV 리뷰 데이터"
-                                    : "리뷰 데이터 없음"}
-                                </Badge>
-                                <span className="text-gray-500">
-                                  CSV에서 추출: {reviewSummaries[`${product.product_name}_${product.category}`].reviewCount}개
-                                </span>
-                              </div>
+                          {reviewSummaries[`${product.product_name}_${product.category}`] && (() => {
+                              const summary = reviewSummaries[`${product.product_name}_${product.category}`];
+                              if (!summary) return null;
+                              
+                              return (
+                                <div className="space-y-4 pt-4">
+                                  {/* 데이터 소스 */}
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <Badge
+                                      variant={
+                                        summary.isRealData && summary.reviewCount > 0
+                                          ? "default"
+                                          : "secondary"
+                                      }
+                                      className="text-xs"
+                                    >
+                                      {summary.isRealData && summary.reviewCount > 0
+                                        ? "CSV 리뷰 데이터"
+                                        : "리뷰 데이터 없음"}
+                                    </Badge>
+                                    <span className="text-gray-500">
+                                      CSV에서 추출: {summary.reviewCount}개
+                                    </span>
+                                  </div>
 
-                              {/* 리뷰 데이터 부족 */}
-                              {reviewSummaries[`${product.product_name}_${product.category}`].hasInsufficientData && (
-                                <Alert className="border-amber-200 bg-amber-50">
-                                  <Info className="h-4 w-4 text-amber-600" />
-                                  <AlertDescription className="text-amber-800">
-                                    리뷰 데이터가 충분하지 않아 분석이 정확하지 않을 수 있습니다. (
-                                    {reviewSummaries[`${product.product_name}_${product.category}`].reviewCount}개 리뷰)
-                                  </AlertDescription>
-                                </Alert>
-                              )}
-                            </div>
-                          )}
+                                  {/* 리뷰 데이터 부족 */}
+                                  {summary.hasInsufficientData && (
+                                    <Alert className="border-amber-200 bg-amber-50">
+                                      <Info className="h-4 w-4 text-amber-600" />
+                                      <AlertDescription className="text-amber-800 text-xs">
+                                        리뷰 데이터가 충분하지 않아 분석이 정확하지 않을 수 있습니다. ({summary.reviewCount}개 리뷰)
+                                      </AlertDescription>
+                                    </Alert>
+                                  )}
+
+                                  {/* 감정 분포 */}
+                                  <div className="p-4 bg-gray-50 rounded-lg">
+                                    <h5 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                                      <TrendingUp className="h-4 w-4 text-gray-600" />
+                                      감정 분포
+                                    </h5>
+                                    <div className="grid grid-cols-3 text-center">
+                                      <div>
+                                        <p className="text-2xl font-bold text-blue-600">{summary.sentiment_distribution.positive}</p>
+                                        <p className="text-xs text-blue-500">긍정</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-2xl font-bold text-gray-500">{summary.sentiment_distribution.neutral}</p>
+                                        <p className="text-xs text-gray-400">중립</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-2xl font-bold text-red-600">{summary.sentiment_distribution.negative}</p>
+                                        <p className="text-xs text-red-500">부정</p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* 주요 키워드 */}
+                                  {summary.top_keywords.length > 0 && (
+                                      <div className="p-4 bg-gray-50 rounded-lg">
+                                          <h5 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                                              <MessageSquare className="h-4 w-4 text-gray-600" />
+                                              주요 키워드
+                                          </h5>
+                                          <div className="flex flex-wrap gap-2">
+                                              {summary.top_keywords.slice(0, 10).map((kw: { word: string; count: number }) => (
+                                                  <Badge key={kw.word} variant="outline" className="bg-white">
+                                                      {kw.word} <span className="text-gray-500 ml-1.5">({kw.count})</span>
+                                                  </Badge>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  )}
+
+                                  {/* 긍정/부정 하이라이트 */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      {summary.positive_highlights.length > 0 && (
+                                          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                                              <h5 className="font-semibold text-sm mb-2 text-green-800 flex items-center gap-2">
+                                                  <ThumbsUp className="h-4 w-4" />
+                                                  긍정적 하이라이트
+                                              </h5>
+                                              <ul className="space-y-2 text-xs text-green-700">
+                                                  {summary.positive_highlights.slice(0, 2).map((hl: string, i: number) => (
+                                                      <li key={i} className="leading-relaxed">"{hl}"</li>
+                                                  ))}
+                                              </ul>
+                                          </div>
+                                      )}
+                                      {summary.negative_concerns.length > 0 && (
+                                          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                                              <h5 className="font-semibold text-sm mb-2 text-red-800 flex items-center gap-2">
+                                                  <ThumbsDown className="h-4 w-4" />
+                                                  부정적 우려사항
+                                              </h5>
+                                              <ul className="space-y-2 text-xs text-red-700">
+                                                  {summary.negative_concerns.slice(0, 2).map((nc: string, i: number) => (
+                                                      <li key={i} className="leading-relaxed">"{nc}"</li>
+                                                  ))}
+                                              </ul>
+                                          </div>
+                                      )}
+                                  </div>
+                                  
+                                  {/* AI 종합 분석 */}
+                                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                      <div className="flex items-start justify-between">
+                                          <div>
+                                              <h5 className="font-semibold text-sm text-purple-800 mb-2">
+                                                  AI 종합 분석
+                                              </h5>
+                                              <p className="text-sm text-purple-700">{summary.summary}</p>
+                                          </div>
+                                          <Badge variant={
+                                              summary.overall_sentiment === 'positive' ? 'default' :
+                                              summary.overall_sentiment === 'negative' ? 'destructive' : 'secondary'
+                                          } className="capitalize">
+                                              {
+                                                  summary.overall_sentiment === 'positive' ? '긍정적' :
+                                                  summary.overall_sentiment === 'negative' ? '부정적' : '중립'
+                                              }
+                                          </Badge>
+                                      </div>
+                                  </div>
+
+                                </div>
+                              )
+                          })()}
                         </div>
                       </div>
                     </div>
