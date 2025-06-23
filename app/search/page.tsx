@@ -414,13 +414,21 @@ export default function SearchPage() {
                           <div>
                             <p className="text-sm font-medium">주요 긍정 키워드</p>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {result.review_analysis.top_positive_keywords.map(kw => <Badge key={kw} variant="outline" className="text-green-700 border-green-200">{kw}</Badge>)}
+                              {result.review_analysis.top_positive_keywords.length > 0 ? (
+                                result.review_analysis.top_positive_keywords.map(kw => <Badge key={kw} variant="outline" className="text-green-700 border-green-200">{kw}</Badge>)
+                              ) : (
+                                <span className="text-xs text-gray-500">관련 키워드 없음</span>
+                              )}
                             </div>
                           </div>
                           <div>
                             <p className="text-sm font-medium">주요 부정 키워드</p>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="outline" className="border-red-300 text-red-700 bg-transparent hover:bg-red-50">{kw}</Badge>)}
+                              {result.review_analysis.top_negative_keywords.length > 0 ? (
+                                result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="outline" className="border-red-300 text-red-700 bg-transparent hover:bg-red-50">{kw}</Badge>)
+                              ) : (
+                                <span className="text-xs text-gray-500">관련 키워드 없음</span>
+                              )}
                             </div>
                           </div>
                         </div>

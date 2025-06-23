@@ -323,47 +323,77 @@ def advanced_review_analysis(reviews: List[str]) -> Dict[str, Any]:
             "top_positive_keywords": [], "top_negative_keywords": []
         }
         
-    vectorizer = TfidfVectorizer(stop_words='english', max_features=100)
+    # ngram_range=(1, 2)로 수정: 1개 단어 및 2개 단어 조합 모두 분석
+    vectorizer = TfidfVectorizer(stop_words='english', max_features=100, ngram_range=(1, 2))
     tfidf_matrix_local = vectorizer.fit_transform(valid_reviews)
     
     sid = SentimentIntensityAnalyzer()
     
-    pos_count, neg_count, neu_count = 0, 0, 0
-    pos_scores_for_keywords, neg_scores_for_keywords = [], []
+    # 1. 각 리뷰의 전체 감성 점수(compound)를 미리 계산
+    review_sentiments = [sid.polarity_scores(review)['compound'] for review in valid_reviews]
+    
+    # 2. 각 키워드가 어떤 리뷰들에서 등장했는지, 해당 리뷰의 점수와 함께 기록
+    feature_names = vectorizer.get_feature_names_out()
+    keyword_sentiments: Dict[str, List[float]] = {kw: [] for kw in feature_names}
+    
+    # 희소 행렬(tfidf_matrix_local)을 순회하며 키워드와 리뷰 점수를 연결
+    cx = tfidf_matrix_local.tocoo() # type: ignore
+    for review_idx, keyword_idx in zip(cx.row, cx.col):
+        keyword = feature_names[keyword_idx]
+        compound_score = review_sentiments[review_idx]
+        keyword_sentiments[keyword].append(compound_score)
 
-    for review in valid_reviews:
-        sentiment = sid.polarity_scores(review)
-        
-        # 전체 분류를 위해 compound 점수 사용
-        compound_score = sentiment['compound']
-        if compound_score >= 0.05:
+    # 3. 각 키워드의 평균 감성 점수를 계산
+    avg_keyword_sentiments: Dict[str, float] = {}
+    for kw, scores in keyword_sentiments.items():
+        if scores:
+            avg_keyword_sentiments[kw] = sum(scores) / len(scores)
+
+    # 4. 평균 점수를 기준으로 키워드를 정렬 (부정->긍정 순)
+    sorted_keywords = sorted(avg_keyword_sentiments.items(), key=lambda item: item[1])
+
+    # 5. 금지어 목록을 사용한 필터링
+    FORCE_NEGATIVE_WORDS = {"disappoint", "bad", "poor", "broken", "issue", "problem", "fail", "slow", "garbage", "useless", "worst", "not working", "stopped"}
+    FORCE_POSITIVE_WORDS = {"good", "great", "excellent", "love", "amazing", "perfect", "best", "nice", "works", "fast", "easy"}
+
+    def is_positive_candidate(kw: str) -> bool:
+        # 부정 금지어가 하나라도 포함되면 긍정 후보에서 탈락
+        return not any(neg_word in kw for neg_word in FORCE_NEGATIVE_WORDS)
+
+    def is_negative_candidate(kw: str) -> bool:
+        # 긍정 금지어가 하나라도 포함되면 부정 후보에서 탈락
+        return not any(pos_word in kw for pos_word in FORCE_POSITIVE_WORDS)
+
+    # 6. 필터링을 통해 진짜 긍정/부정 키워드만 추출
+    # 부정 키워드: 평균 점수가 0 미만이고, 긍정 금지어를 포함하지 않는 키워드
+    negative_candidates = [
+        (kw, score) for kw, score in sorted_keywords 
+        if score < 0 and is_negative_candidate(kw)
+    ]
+    top_negative_keywords = [kw for kw, score in negative_candidates[:5]]
+
+    # 긍정 키워드: 평균 점수가 0 초과이고, 부정 금지어를 포함하지 않는 키워드
+    positive_candidates = [
+        (kw, score) for kw, score in sorted_keywords 
+        if score > 0 and is_positive_candidate(kw)
+    ]
+    # 점수가 높은 순으로 다시 정렬하여 상위 5개를 선택
+    top_positive_keywords = [kw for kw, score in sorted(positive_candidates, key=lambda item: item[1], reverse=True)[:5]]
+
+    # --- 전체 긍/부정 비율 계산 로직 (기존 로직 유지) ---
+    pos_count, neg_count, neu_count = 0, 0, 0
+    for score in review_sentiments:
+        if score >= 0.05:
             pos_count += 1
-        elif compound_score <= -0.05:
+        elif score <= -0.05:
             neg_count += 1
         else:
             neu_count += 1
-        
-        # 키워드 분석을 위해 기존 pos/neg 점수 유지
-        pos_scores_for_keywords.append(sentiment['pos'])
-        neg_scores_for_keywords.append(sentiment['neg'])
-
+            
     total_reviews = len(valid_reviews)
     positive_percentage = (pos_count / total_reviews) * 100 if total_reviews > 0 else 0
     negative_percentage = (neg_count / total_reviews) * 100 if total_reviews > 0 else 0
     neutral_percentage = (neu_count / total_reviews) * 100 if total_reviews > 0 else 100
-
-
-    feature_names = np.array(vectorizer.get_feature_names_out())
-
-    # 각 키워드의 평균 긍정/부정 점수 계산
-    pos_word_scores = tfidf_matrix_local.T.dot(pos_scores_for_keywords) # type: ignore
-    neg_word_scores = tfidf_matrix_local.T.dot(neg_scores_for_keywords) # type: ignore
-
-    top_positive_indices = pos_word_scores.argsort()[-5:][::-1]
-    top_negative_indices = neg_word_scores.argsort()[-5:][::-1]
-
-    top_positive_keywords = feature_names[top_positive_indices].tolist()
-    top_negative_keywords = feature_names[top_negative_indices].tolist()
 
     return {
         "positive_percentage": positive_percentage,
