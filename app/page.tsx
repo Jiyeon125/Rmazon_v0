@@ -47,7 +47,7 @@ export default function LandingPage() {
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">판매 지표 예측</h2>
           <p className="text-gray-600 text-left">
-            회귀 분석 모델을 기반으로 상품의 별점을 예측합니다. 상품 특징과 시장 데이터를 활용하여 예상되는 고객 반응을 미리 파악하고 상품성을 개선하세요. (준비 중)
+            회귀 분석 모델을 기반으로 상품의 별점을 예측합니다. 상품 특징과 시장 데이터를 활용하여 예상되는 고객 반응을 미리 파악하고 상품성을 개선하세요.
           </p>
         </div>
       </div>

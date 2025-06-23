@@ -28,6 +28,9 @@ class PredictionRequest(BaseModel):
 # 응답 본문의 데이터 구조를 정의합니다.
 class PredictionResponse(BaseModel):
     predicted_star: float
+    price_percentile: float
+    review_count_percentile: float
+    rating_percentile: float
 
 class SimilarityRequest(BaseModel):
     description: str
@@ -59,6 +62,19 @@ class SimilarityResult(BaseModel):
 class PriceRangeResponse(BaseModel):
     min_price: float
     max_price: float
+
+class DistributionBin(BaseModel):
+    name: str
+    count: int
+
+class CategoryStatsResponse(BaseModel):
+    min_price: float
+    max_price: float
+    min_review_count: float
+    max_review_count: float
+    price_distribution: List[DistributionBin]
+    review_count_distribution: List[DistributionBin]
+    rating_distribution: List[DistributionBin]
 
 # --- FastAPI 애플리케이션 설정 ---
 app = FastAPI()
@@ -293,6 +309,40 @@ def get_category_price_range(category: str = Query(...)):
 
     return {"min_price": min_price, "max_price": max_price}
 
+@app.get("/category-stats", response_model=CategoryStatsResponse)
+def get_category_stats(category: str = Query(..., description="통계 정보를 조회할 카테고리")):
+    """선택한 카테고리의 가격, 리뷰 수, 별점에 대한 통계 정보를 반환합니다."""
+    if df_products.empty:
+        raise HTTPException(status_code=503, detail="서버 데이터가 준비되지 않았습니다.")
+
+    filtered_df = df_products[df_products['category_cleaned'] == category]
+    if filtered_df.empty:
+        raise HTTPException(status_code=404, detail=f"'{category}' 카테고리에 대한 데이터가 없습니다.")
+
+    def create_histogram(data: pd.Series, bins=10):
+        if data.empty or data.nunique() < 2: # 데이터가 없거나 모두 같은 값이면 히스토그램 생성 불가
+            return [{"name": "N/A", "count": len(data)}]
+        
+        counts, bin_edges = np.histogram(data.dropna(), bins=bins)
+        dist_data = []
+        for i in range(len(counts)):
+            start = bin_edges[i]
+            end = bin_edges[i+1]
+            # 정수는 깔끔하게, 실수는 소수점 1자리까지 표기
+            label = f"{int(start):,}-{int(end):,}" if start.is_integer() and end.is_integer() else f"{start:,.1f}-{end:,.1f}"
+            dist_data.append({"name": label, "count": int(counts[i])})
+        return dist_data
+
+    return {
+        "min_price": filtered_df['discounted_price'].min(),
+        "max_price": filtered_df['discounted_price'].max(),
+        "min_review_count": filtered_df['rating_count'].min(),
+        "max_review_count": filtered_df['rating_count'].max(),
+        "price_distribution": create_histogram(filtered_df['discounted_price']),
+        "review_count_distribution": create_histogram(filtered_df['rating_count']),
+        "rating_distribution": create_histogram(filtered_df['rating'], bins=8) # 1~5점 별점을 좀 더 세분화
+    }
+
 @app.post("/search-similarity", response_model=List[SimilarityResult])
 def search_similarity(request: SimilarityRequest):
     """
@@ -383,5 +433,21 @@ def predict_star_rating(request: PredictionRequest):
     
     # 모델의 예측 결과가 현실적인 별점 범위(0~5)를 벗어나지 않도록 보정
     clamped_star = max(0.0, min(5.0, predicted_star))
+
+    # --- 백분위 계산 로직 ---
+    filtered_df = df_products[df_products['category_cleaned'] == request.category]
     
-    return {"predicted_star": round(clamped_star, 2)} 
+    def calculate_percentile(series: pd.Series, score: float) -> float:
+        if series.empty: return 50.0  # 데이터가 없으면 중간값으로 처리
+        return (series < score).sum() / len(series) * 100
+
+    price_percentile = calculate_percentile(filtered_df['discounted_price'], request.price)
+    review_count_percentile = calculate_percentile(filtered_df['rating_count'], request.review_count)
+    rating_percentile = calculate_percentile(filtered_df['rating'], clamped_star)
+    
+    return {
+        "predicted_star": round(clamped_star, 2),
+        "price_percentile": round(price_percentile, 1),
+        "review_count_percentile": round(review_count_percentile, 1),
+        "rating_percentile": round(rating_percentile, 1),
+    } 
