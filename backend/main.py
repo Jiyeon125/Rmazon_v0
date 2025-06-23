@@ -172,7 +172,7 @@ def load_data_and_train_models():
     # 상품 메타데이터(리뷰 제외)를 가져와 중복 제거
     # 'about_product'가 포함되었는지 확인
     df_meta_cols = ['product_id', 'product_name', 'about_product', 'category_cleaned', 'discounted_price', 'rating_count', 'rating']
-    df_products = df_raw[df_meta_cols].drop_duplicates(subset=['product_id']).copy()
+    df_products = df_raw[df_meta_cols].drop_duplicates(subset=['product_id']).copy() # type: ignore
     
     # 모델 학습에 필요한 컬럼이 모두 있는지 최종 확인
     df_products.dropna(subset=['discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
