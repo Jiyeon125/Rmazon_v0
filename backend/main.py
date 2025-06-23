@@ -13,6 +13,11 @@ import os
 import shutil
 from typing import List, Optional, Dict
 import numpy as np
+import math
+
+# --- 상수 정의 ---
+MIN_RATING = 1.0
+MAX_RATING = 5.0
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
@@ -274,6 +279,15 @@ def advanced_review_analysis(reviews: List[str]) -> Dict:
         "review_count": len(reviews)
     }
 
+def squash_to_rating_range(x: float, center: float, scale: float = 0.5) -> float:
+    """
+    시그모이드 함수를 변형하여 입력값 x를 [MIN_RATING, MAX_RATING] 범위로 부드럽게 변환합니다.
+    - center: 변환의 중심이 되는 값 (데이터의 평균 별점 등)
+    - scale: 곡선의 가파른 정도를 조절
+    """
+    k = scale
+    return MIN_RATING + (MAX_RATING - MIN_RATING) / (1 + math.exp(-k * (x - center)))
+
 @app.get("/category-price-range", response_model=PriceRangeResponse)
 def get_category_price_range(category: str = Query(...)):
     """특정 카테고리의 최소 및 최대 가격을 반환합니다."""
@@ -368,7 +382,7 @@ def search_similarity(request: SimilarityRequest):
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict_star_rating(request: PredictionRequest):
-    if ml_pipe is None:
+    if ml_pipe is None or df_products.empty:
         raise HTTPException(status_code=503, detail="예측 모델이 준비되지 않았습니다.")
         
     input_data_dict = {
@@ -380,4 +394,10 @@ def predict_star_rating(request: PredictionRequest):
     
     predicted_star = ml_pipe.predict(input_data)[0]
     
-    return {"predicted_star": round(predicted_star, 2)} 
+    # 예측 결과의 중심점을 데이터셋의 평균 별점으로 사용
+    rating_center = df_products['rating'].mean()
+
+    # 시그모이드 함수를 이용해 예측 결과를 1~5점 사이로 정규화
+    normalized_star = squash_to_rating_range(predicted_star, center=rating_center)
+    
+    return {"predicted_star": round(normalized_star, 2)} 
