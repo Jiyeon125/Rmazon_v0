@@ -22,12 +22,12 @@ class Keyword(BaseModel):
 
 class PredictionRequest(BaseModel):
     price: float
-    review_count: int
     category: str
 
 # 응답 본문의 데이터 구조를 정의합니다.
 class PredictionResponse(BaseModel):
     predicted_star: float
+    predicted_review_count: int # 리뷰 개수 request에서 response로 수정
     price_percentile: float
     review_count_percentile: float
     rating_percentile: float
@@ -98,7 +98,7 @@ DATA_FILE_PATH = os.path.join("data", "cleaned_amazon_0519.csv")
 
 # --- 핵심 로직: 데이터 로딩 및 모델 학습 ---
 def load_data_and_train_models():
-    global ml_pipe, tfidf_vectorizer, tfidf_matrix, df_products, df_reviews
+    global ml_pipe, count_pipe, tfidf_vectorizer, tfidf_matrix, df_products, df_reviews # 함수 내 리뷰 수 예측 모델학습 추가
     
     if not os.path.exists(DATA_FILE_PATH):
         print(f"⚠️ 데이터 파일이 존재하지 않습니다: {DATA_FILE_PATH}")
@@ -166,6 +166,25 @@ def load_data_and_train_models():
     ml_pipe = Pipeline(steps=[('preprocessor', preprocessor), ('regressor', Ridge(alpha=1.0))])
     ml_pipe.fit(X_ridge, y_ridge)
     print("✅ Ridge Regression model training complete!")
+
+    # 릿지 회귀 모델 학습 (리뷰수 예측용)
+    X_count = df_products[['discounted_price', 'category_cleaned']]
+    y_count = df_products['rating_count']
+
+    count_preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', StandardScaler(), ['discounted_price']),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), ['category_cleaned'])
+        ]
+    )
+
+    count_pipe = Pipeline(steps=[
+        ('preprocessor', count_preprocessor),
+        ('regressor', Ridge(alpha=1.0))
+    ])
+    count_pipe.fit(X_count, y_count)
+    print("✅ Count Regression model training complete!")
+
 
     # TF-IDF 모델 학습 (유사도 분석용)
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
@@ -421,19 +440,25 @@ def search_similarity(request: SimilarityRequest):
 def predict_star_rating(request: PredictionRequest):
     if ml_pipe is None or df_products.empty:
         raise HTTPException(status_code=503, detail="예측 모델이 준비되지 않았습니다.")
-        
-    input_data_dict = {
+    
+    # 1차 입력: price + category -> 리뷰 수 예측
+    input_for_count = pd.DataFrame([{
         'discounted_price': request.price,
-        'rating_count': request.review_count,
         'category_cleaned': request.category
-    }
-    input_data = pd.DataFrame([input_data_dict])
+    }])
+    predicted_review_count = max(0, int(count_pipe.predict(input_for_count)[0]))
     
-    predicted_star = ml_pipe.predict(input_data)[0]
-    
+    # 2차 입력: price + 예측된 리뷰 수 + category -> 별점 예측
+    input_for_star = pd.DataFrame([{
+        'discounted_price': request.price,
+        'rating_count': predicted_review_count,
+        'category_cleaned': request.category
+    }])
+    predicted_star = ml_pipe.predict(input_for_star)[0]
     # 모델의 예측 결과가 현실적인 별점 범위(0~5)를 벗어나지 않도록 보정
     clamped_star = max(0.0, min(5.0, predicted_star))
 
+    # 2차 입력: price + 예측된 별점 +
     # --- 백분위 계산 로직 ---
     filtered_df = df_products[df_products['category_cleaned'] == request.category]
     
@@ -442,12 +467,13 @@ def predict_star_rating(request: PredictionRequest):
         return (series < score).sum() / len(series) * 100
 
     price_percentile = calculate_percentile(filtered_df['discounted_price'], request.price)
-    review_count_percentile = calculate_percentile(filtered_df['rating_count'], request.review_count)
+    review_count_percentile = calculate_percentile(filtered_df['rating_count'], predicted_review_count)
     rating_percentile = calculate_percentile(filtered_df['rating'], clamped_star)
     
     return {
         "predicted_star": round(clamped_star, 2),
+        "predicted_review_count": predicted_review_count,
         "price_percentile": round(price_percentile, 1),
         "review_count_percentile": round(review_count_percentile, 1),
         "rating_percentile": round(rating_percentile, 1),
-    } 
+    }
