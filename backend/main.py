@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
+from pandas import DataFrame
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.compose import ColumnTransformer
@@ -11,8 +12,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction import text
 import os
 import shutil
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import numpy as np
+import joblib
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from scipy.sparse import csr_matrix
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
@@ -43,21 +47,39 @@ class Product(BaseModel):
     product_name: str
 
 class ReviewAnalysis(BaseModel):
-    overall_sentiment: str
-    sentiment_distribution: Dict[str, int]
-    top_keywords: List[Keyword]
-    negative_concerns: List[str]
-    summary: str
+    positive_percentage: float
+    negative_percentage: float
+    neutral_percentage: float
+    top_positive_keywords: List[str]
+    top_negative_keywords: List[str]
+
+class ProductInfo(BaseModel):
+    product_id: str
+    product_name: str
+    category: str
+    price: float
     review_count: int
+    review_analysis: ReviewAnalysis
+
+class SimilarProduct(ProductInfo):
+    similarity: float
 
 class SimilarityResult(BaseModel):
     product_id: str
     product_name: str
+    category: str
     similarity: float
     discounted_price: float
     rating: float
     rating_count: int
     review_analysis: ReviewAnalysis
+
+class PredictionInput(BaseModel):
+    price: float
+    review_count: int
+    category: str
+    review_count_distribution: List[Dict[str, Any]]
+    rating_distribution: List[Dict[str, Any]]
 
 class PriceRangeResponse(BaseModel):
     min_price: float
@@ -236,59 +258,61 @@ def get_products(category: Optional[str] = Query(None)):
     
     if category:
         filtered_df = df_products[df_products['category_cleaned'] == category]
-        return filtered_df[['product_id', 'product_name']].to_dict('records')
+        return filtered_df[['product_id', 'product_name']].to_dict('records') # type: ignore
     
     # 카테고리가 없으면 전체 목록 반환 (관리용 또는 다른 용도로 유지)
-    return df_products[['product_id', 'product_name']].to_dict('records')
+    return df_products[['product_id', 'product_name']].to_dict('records') # type: ignore
 
 # --- 고급 리뷰 분석 로직 (서버 사이드로 이동) ---
-def advanced_review_analysis(reviews: List[str]) -> Dict:
-    # 이 부분은 이전에 프론트엔드에 있던 로직을 가져온 것입니다.
-    # 실제로는 더 정교한 NLP 라이브러리(spaCy, NLTK 등)를 사용해야 하지만,
-    # 기존 기능 복원을 위해 동일한 로직을 사용합니다.
-    
-    # ... (여기에 감성분석, 키워드 추출 등 기존 로직 구현) ...
-    # 간단한 구현 예시:
-    positive_words = ['good', 'great', 'excellent', 'love', 'best']
-    negative_words = ['bad', 'poor', 'terrible', 'hate', 'worst']
-    
-    sentiments = {'positive': 0, 'neutral': 0, 'negative': 0}
-    all_words = []
-    
-    for review in reviews:
-        review_lower = review.lower()
-        pos_count = sum(1 for word in positive_words if word in review_lower)
-        neg_count = sum(1 for word in negative_words if word in review_lower)
-        
-        if pos_count > neg_count:
-            sentiments['positive'] += 1
-        elif neg_count > pos_count:
-            sentiments['negative'] += 1
-        else:
-            sentiments['neutral'] += 1
-        
-        all_words.extend(review_lower.split())
+def advanced_review_analysis(reviews: List[str]) -> Dict[str, Any]:
+    if not reviews or all(r is None for r in reviews):
+        return {
+            "positive_percentage": 0, "negative_percentage": 0, "neutral_percentage": 100,
+            "top_positive_keywords": [], "top_negative_keywords": []
+        }
 
-    # 전체 감성
-    overall = max(sentiments, key=sentiments.get)
-
-    # 키워드 (간단한 빈도수 기반)
-    from collections import Counter
-    # 불용어 리스트 확장
-    stop_words_list = list(text.ENGLISH_STOP_WORDS) + ['product', 'amazon', 'use', 'get', 'it', 'i']
+    valid_reviews = [r for r in reviews if r is not None]
+    if not valid_reviews:
+        return {
+            "positive_percentage": 0, "negative_percentage": 0, "neutral_percentage": 100,
+            "top_positive_keywords": [], "top_negative_keywords": []
+        }
+        
+    vectorizer = TfidfVectorizer(stop_words='english', max_features=100)
+    tfidf_matrix_local = vectorizer.fit_transform(valid_reviews)
     
-    keywords_with_counts = [
-        (word, count) for word, count in Counter(all_words).most_common(20) 
-        if word.isalpha() and len(word) > 2 and word not in stop_words_list
-    ]
+    sid = SentimentIntensityAnalyzer()
+    
+    pos_scores, neg_scores, neu_scores = [], [], []
+    for review in valid_reviews:
+        sentiment = sid.polarity_scores(review)
+        pos_scores.append(sentiment['pos'])
+        neg_scores.append(sentiment['neg'])
+        neu_scores.append(sentiment['neu'])
+
+    total_reviews = len(valid_reviews)
+    positive_percentage = sum(1 for p in pos_scores if p > 0.1) / total_reviews * 100
+    negative_percentage = sum(1 for n in neg_scores if n > 0.1) / total_reviews * 100
+    neutral_percentage = 100 - positive_percentage - negative_percentage
+
+    feature_names = np.array(vectorizer.get_feature_names_out())
+
+    # 각 키워드의 평균 긍정/부정 점수 계산
+    pos_word_scores = tfidf_matrix_local.T.dot(pos_scores) # type: ignore
+    neg_word_scores = tfidf_matrix_local.T.dot(neg_scores) # type: ignore
+
+    top_positive_indices = pos_word_scores.argsort()[-5:][::-1]
+    top_negative_indices = neg_word_scores.argsort()[-5:][::-1]
+
+    top_positive_keywords = feature_names[top_positive_indices].tolist()
+    top_negative_keywords = feature_names[top_negative_indices].tolist()
 
     return {
-        "overall_sentiment": overall,
-        "sentiment_distribution": sentiments,
-        "top_keywords": [{"word": w, "count": c} for w, c in keywords_with_counts[:5]], # 상위 5개만 선택
-        "negative_concerns": [r for r in reviews if any(w in r.lower() for w in negative_words)][:2],
-        "summary": f"전체적으로 {overall}적인 평가가 많습니다. 주요 키워드는 {', '.join([k[0] for k in keywords_with_counts[:5]])} 등입니다.",
-        "review_count": len(reviews)
+        "positive_percentage": positive_percentage,
+        "negative_percentage": negative_percentage,
+        "neutral_percentage": neutral_percentage,
+        "top_positive_keywords": top_positive_keywords,
+        "top_negative_keywords": top_negative_keywords
     }
 
 @app.get("/category-price-range", response_model=PriceRangeResponse)
@@ -319,19 +343,45 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
     if filtered_df.empty:
         raise HTTPException(status_code=404, detail=f"'{category}' 카테고리에 대한 데이터가 없습니다.")
 
-    def create_histogram(data: pd.Series, bins=10):
-        if data.empty or data.nunique() < 2: # 데이터가 없거나 모두 같은 값이면 히스토그램 생성 불가
-            return [{"name": "N/A", "count": len(data)}]
+    def create_histogram(data: pd.Series, bins=10) -> List[Dict[str, Any]]:
+        if data.empty:
+            return []
+        # NaN 값을 안전하게 처리하고, 데이터 타입을 float으로 통일
+        data = pd.to_numeric(data, errors='coerce').dropna() # type: ignore
+        if data.empty:
+            return []
         
-        counts, bin_edges = np.histogram(data.dropna(), bins=bins)
-        dist_data = []
+        min_val, max_val = data.min(), data.max()
+        
+        if min_val == max_val:
+            return [{"name": f"{min_val:.0f}-{max_val:.0f}", "count": len(data)}]
+
+        try:
+            # np.histogram을 사용하여 빈과 카운트 계산
+            counts, bin_edges = np.histogram(data, bins=bins, range=(min_val, max_val))
+        except Exception:
+            # 예외 발생 시 수동으로 범위 계산
+            bin_edges = np.linspace(min_val, max_val, bins + 1)
+            counts = pd.cut(data, bins=bin_edges, include_lowest=True, right=False).value_counts().sort_index().values
+
+        
+        histogram = []
         for i in range(len(counts)):
-            start = bin_edges[i]
-            end = bin_edges[i+1]
-            # 정수는 깔끔하게, 실수는 소수점 1자리까지 표기
-            label = f"{int(start):,}-{int(end):,}" if start.is_integer() and end.is_integer() else f"{start:,.1f}-{end:,.1f}"
-            dist_data.append({"name": label, "count": int(counts[i])})
-        return dist_data
+            # 레이블 형식 변경 (정수형으로)
+            start = int(bin_edges[i])
+            end = int(bin_edges[i+1])
+            histogram.append({"name": f"{start:,}-{end:,}", "count": int(counts[i])})
+        
+        # 마지막 빈에 최대값 포함시키기
+        if len(histogram) > 0 and max_val == bin_edges[-1]:
+            last_item_name = histogram[-1]['name']
+            if str(max_val) not in last_item_name.split('-')[1]:
+                # 데이터가 마지막 빈의 경계에 정확히 있을 때 카운트를 마지막 빈에 포함
+                final_count = data[data >= bin_edges[-2]].count()
+                histogram[-1]['count'] = int(final_count)
+
+
+        return histogram
 
     return {
         "min_price": filtered_df['discounted_price'].min(),
@@ -396,11 +446,8 @@ def search_similarity(request: SimilarityRequest):
         if not product_reviews:
             # 리뷰가 없는 경우 기본값 설정
             review_analysis_result = {
-                'overall_sentiment': 'neutral',
-                'sentiment_distribution': {'positive': 0, 'neutral': 0, 'negative': 0},
-                'top_keywords': [], 'negative_concerns': [],
-                'summary': '리뷰 데이터가 부족하여 분석할 수 없습니다.',
-                'review_count': 0
+                'positive_percentage': 0, 'negative_percentage': 0, 'neutral_percentage': 100,
+                'top_positive_keywords': [], 'top_negative_keywords': []
             }
         else:
             review_analysis_result = advanced_review_analysis(product_reviews)
@@ -408,11 +455,12 @@ def search_similarity(request: SimilarityRequest):
         results.append(SimilarityResult(
             product_id=product_id,
             product_name=product_row['product_name'],
+            category=product_row['category_cleaned'],
             similarity=combined_scores[idx],
             discounted_price=product_row['discounted_price'],
             rating=product_row['rating'],
             rating_count=product_row['rating_count'],
-            review_analysis=review_analysis_result
+            review_analysis=ReviewAnalysis(**review_analysis_result)
         ))
         
     return results
