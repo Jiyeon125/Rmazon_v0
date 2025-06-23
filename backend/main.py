@@ -20,50 +20,19 @@ from scipy.sparse import csr_matrix
 from collections import Counter
 
 # --- 카테고리별 키워드 세트 ---
-# 상품 설명 분석을 통해 생성된 카테고리별 주요 키워드(cursor 추천)
-KEYWORD_SETS = {
-    'Car&Motorbike | CarAccessories | InteriorAccessories': ['reffair', 'ax30', 'filter', 'purification', 'car', 'hepa', 'efficient', 'h13', 'makes', 'comes', 'tested', 'reliable', 'performance', 'many', 'inside'],
-    'Computers&Accessories | Accessories&Peripherals | Adapters': ['plug', 'charging', 'type-c', 'usb-c', 'used', 'transfer', 'note', 'transmission', 'allows', 'laptops', 'peripherals', 'into', 'usb-a', 'supports', 'built-in'],
-    'Computers&Accessories | Accessories&Peripherals | Audio&VideoAccessories': ['windows', 'laptop', 'video', 'speaker', '5mm', 'powered', 'calls', 'clip', 'sound', 'audio', 'camera', 'webcam', 'either', 'control', 'source'],
-    'Computers&Accessories | Accessories&Peripherals | Cables&Accessories': ['charging', 'charge', 'fast', 'speed', 'iphone', 'power', 'durable', 'transfer', 'type-c', 'ipad', 'charger', 'supports', 'braided', 'nylon', 'micro'],
-    'Computers&Accessories | Accessories&Peripherals | HardDiskBags': ['hard', 'case', 'drive', 'mesh', 'cables', 'bag', 'water', 'elastic', 'pocket', 'flash', 'drives', 'keeps', 'disk', 'band', 'securely'],
-    'Computers&Accessories | Accessories&Peripherals | HardDriveAccessories': ['laptop', 'drive', '5mm', 'hard', 'hdd', 'sata', 'new', 'laptops', 'replace', 'current', 'channels', 'switch', 'help', 'improve', 'try'],
-    'Computers&Accessories | Accessories&Peripherals | Keyboards,Mice&InputDevices': ['mouse', 'wireless', 'keyboard', 'battery', 'optical', 'windows', 'pad', 'receiver', 'life', 'click', 'dpi', 'technology', 'tablet', 'writing', 'button'],
-    'Computers&Accessories | Accessories&Peripherals | LaptopAccessories': ['laptop', 'stand', 'table', 'desk', 'foldable', 'bed', 'work', 'laptops', 'carry', 'cover', 'ipad', 'protection', 'height', 'legs', 'ergonomic'],
-    'Computers&Accessories | Accessories&Peripherals | PCGamingPeripherals': ['gaming', 'mouse', 'dpi', 'comes', 'windows', 'buttons', 'rgb', 'led', 'switch', 'light', 'game', 'dedicated', 'equipped', 'experience', 'gamers'],
-    'Computers&Accessories | Accessories&Peripherals | TabletAccessories': ['ipad', 'generation', '7th', '8th', 'case', '9th', 'designed', 'fit', 'model', 'clarity', 'transparency', 'fingerprint', 'protects', 'new', 'specifically'],
-    'Computers&Accessories | Accessories&Peripherals | USBGadgets': ['light', 'power', 'led', 'lighting', 'rated', 'car', 'voltage', 'standard', 'small', 'into', 'energy', 'night', 'room', 'side', 'falls'],
-    'Computers&Accessories | Accessories&Peripherals | USBHubs': ['hub', 'usb-a', 'connect', 'transfer', 'card', 'mport', 'gives', 'working', 'speed', 'macbook', 'comes', 'plug', 'play', 'type-c', '5gbps'],
-    'Computers&Accessories | Accessories&Peripherals | UninterruptedPowerSupplies': ['load', 'mains', 'battery', 'power', 'voltage', 'time', 'generator', 'compact', 'line', 'interactive', 'ups', 'capacity', '360watts', '600va', 'frequency'],
-    'Computers&Accessories | Components | InternalHardDrives': ['laptop', 'hdd', '5mm', 'hard', 'drive', 'channels', 'switch', 'help', 'improve', 'try', 'move', 'read', 'sata', 'ssd', 'include'],
-    'Computers&Accessories | Components | InternalSolidStateDrives': ['write', 'drive', 'ssd', 'nand', 'speeds', 'read', 'micron', 'crucial', 'bx500', 'power', 'advanced', 'than', 'performance', 'storage', '240gb'],
-    'Computers&Accessories | Components | Memory': ['crucial', 'system', 'ease', 'configuration', 'improve', 'responsiveness', 'run', 'apps', 'faster', 'multitask', 'extended', 'timings', '22-22-22', 'install', 'computer'],
-    'Computers&Accessories | ExternalDevices&DataStorage | ExternalHardDisks': ['drive', 'enclosure', 'hard', 'windows', 'protection', 'hardware', 'hdd', 'digital', 'password', 'mac', 'reformatting', 'systems', 'ssd', 'capacity', 'interface'],
-    'Computers&Accessories | ExternalDevices&DataStorage | PenDrives&StorageCards': ['drive', 'card', 'memory', 'speed', 'read', 'microsdxc', 'transfer', 'class', 'storage', 'sandisk', 'adapter', 'uhs-i', 'photos', 'ideal', 'apps'],
-    'Computers&Accessories | NetworkingDevices | DataCards&Dongles': ['connect', 'unlocked', 'lte', 'network', 'speed', 'jiofi', 'hotspot', 'sim', 'jdr740', 'wifi', '4g', 'supports', 'internet', 'wireless', 'upload'],
-    'Computers&Accessories | NetworkingDevices | NetworkAdapters': ['wifi', 'wireless', 'adapter', 'speed', 'band', 'dual', 'supports', 'windows', 'range', 'security', 'speeds', 'linux', 'nano', 'high-gain', 'wpa-psk'],
-    'Computers&Accessories | NetworkingDevices | Routers': ['router', 'dual', 'band', 'speed', 'wireless', 'wifi', 'tenda', 'gigabit', 'parental', 'control', 'ports', 'connect', 'internet', 'beaming', 'technology'],
-    'Electronics | Cameras&Photography | Accessories': ['tripod', 'phone', 'mobile', 'light', 'camera', 'mini', 'angle', 'cameras', 'stand', 'dslr', 'button', 'holder', 'cleaning', 'height', 'screw'],
-    'Electronics | Cameras&Photography | Flashes': ['light', 'ring', 'led', 'lighting', 'brightness', 'live', 'easily', 'different', 'tripod', 'phone', 'holder', 'power', 'suitable', 'mode', 'adjust'],
-    'Electronics | Cameras&Photography | SecurityCameras': ['camera', 'video', 'smart', 'storage', '1080p', 'advanced', 'night', 'vision', 'detection', 'light', 'google', 'alexa', 'security', 'full', 'cloud'],
-    'Electronics | Cameras&Photography | VideoCameras': ['video', 'web', 'camera', 'experience', 'supports', '640x480', 'pixels', 'comes', 'videos', 'uploads', 'webcam', 'tripod', 'plug', 'noise', 'w100'],
-    'Electronics | GeneralPurposeBatteries&BatteryChargers': ['batteries', 'lithium', 'used', 'duracell', 'coin', 'advanced', 'battery', 'eneloop', 'charger', 'charge', 'remotes', 'panasonic', 'chargers', 'suitable', 'keyfobs'],
-    'Electronics | Headphones,Earbuds&Accessories | Headphones': ['sound', 'earbuds', 'hours', 'experience', 'time', 'drivers', 'bass', 'calls', 'music', 'voice', 'audio', 'bluetooth', 'ear', 'mic', 'charging'],
-    'Electronics | HomeAudio | Speakers': ['speaker', 'bluetooth', 'aux', 'time', 'wireless', 'volume', 'battery', 'dual', 'charging', 'hours', 'offers', 'sound', 'playback', 'comes', 'audio'],
-    'Electronics | HomeTheater,TV&Video | Accessories': ['remote', 'hdmi', 'fire', 'control', 'audio', 'before', 'led', 'please', 'smart', 'supports', 'stick', 'video', 'inches', 'batteries', 'durable'],
-    'Electronics | HomeTheater,TV&Video | Projectors': ['projector', 'display', 'pixel', 'projectors', 'projection', 'screen', 'life', 'hours', 'size', 'led', 'resolution', 'large', 'hdmi', 'clear', 'light'],
-    'Electronics | HomeTheater,TV&Video | Televisions': ['connect', 'installation', 'sound', 'information', 'resolution', 'smart', 'display', 'hdmi', 'top', 'provided', 'panel', 'dolby', 'hard', 'drives', 'rate'],
-    'Electronics | Mobiles&Accessories | MobileAccessories': ['charging', 'phone', 'ipad', 'charge', 'iphone', 'power', 'fast', 'charger', 'mobile', 'protector', 'stand', 'protection', 'cables', 'selfie', 'screen'],
-    'Electronics | Mobiles&Accessories | Smartphones&BasicMobiles': ['camera', 'display', 'battery', 'processor', 'dual', 'sim', '2mp', 'memory', 'ram', 'front', 'storage', 'nano', '8mp', 'resolution', '50mp'],
-    'Electronics | PowerAccessories | SurgeProtectors': ['power', 'through', 'maximum', 'spike', 'current', 'amps', 'grounds', '3-line', 'protection', 'sockets', 'delivers', '5-metre', 'heavyduty', 'cables', 'superior'],
-    'Electronics | WearableTechnology | SmartWatches': ['watch', 'smartwatch', 'display', 'sports', 'health', 'bluetooth', 'modes', 'calling', 'touch', 'faces', 'fire-boltt', 'smart', 'rate', 'calls', 'heart'],
-    'Health&PersonalCare | HomeMedicalSupplies&Equipment | HealthMonitors': ['weight', 'function', 'comes', 'weighing', 'ingredients', 'measurement', 'bowl', 'scale', 'units', 'battery', 'off', 'tare', 'allows', 'measure', 'after'],
-    'Home&Kitchen | Kitchen&Dining | KitchenTools': ['chopper', 'unique', 'string', 'function', 'chop', 'vegetables', 'fruits', 'ease', 'package', 'contents', '1-piece', 'handy', 'blade', 'centimeters', 'eco-friendly'],
-    'Home&Kitchen | Kitchen&HomeAppliances | SmallKitchenAppliances': ['steel', 'stainless', 'power', 'jar', 'motor', 'food', 'electric', 'water', 'blender', 'kettle', 'time', 'kitchen', 'body', 'off', 'make'],
-    'Home&Kitchen | Kitchen&HomeAppliances | Vacuum,Cleaning&Ironing': ['lint', 'dust', 'power', 'vacuum', 'cleaning', 'cord', 'cleaner', 'clean', 'clothes', 'hair', 'fabric', 'remover', 'suction', 'powerful', 'fabrics'],
-    'Home&Kitchen | Kitchen&HomeAppliances | WaterPurifiers&Accessories': ['water', 'filter', 'purifier', 'purification', 'installation', 'technology', 'capacity', 'tds', 'filters', 'removes', 'membrane', 'taste', 'used', 'copper', 'germkill'],
-    'MusicalInstruments | Microphones | Condenser': ['microphone', 'dslr', 'smartphone', 'off', 'jack', 'audio', 'omni', 'designed', 'camcorders', 'recorders', 'switch', 'slide', 'only', 'laptop', 'recording']
-}
+# 이전에 사용되던 카테고리별 키워드셋은 TECH_KEYWORDS 방식으로 대체되었습니다.
+KEYWORD_SETS = {}
+
+# 제품의 핵심 기능을 정의하는 키워드셋
+# 이 키워드들은 제품의 종류를 명확히 구분하는 데 사용됨
+TECH_KEYWORDS = [
+    'usb-c', 'usb-a', 'hdmi', '8-pin', 'lightning', 'micro-usb', 'type-c',
+    'bluetooth', 'wireless', 'wired', '5g', '4g', 'lte', 'wifi',
+    'ssd', 'hdd', 'ddr4', 'ddr5', 'ram', 'gb', 'tb',
+    'led', 'lcd', 'oled', 'qled', '4k', '8k', '1080p',
+    'noise cancelling', 'waterproof', 'water resistant',
+    'sata', 'nvme', 'm.2'
+]
 
 # --- Pydantic 모델 정의 ---
 # API 요청/응답의 데이터 구조를 정의하여 유효성 검사 및 문서화를 자동화합니다.
@@ -162,11 +131,11 @@ app.add_middleware(
 )
 
 # --- 전역 변수: 모델, 데이터, 전처리기 ---
-ml_pipe = None
-review_count_pipe = None # 리뷰 수 예측 모델
-hierarchical_categories_data = {} # 계층적 카테고리 데이터
-tfidf_vectorizer = None
-tfidf_matrix = None
+ml_pipe: Optional[Pipeline] = None
+review_count_pipe: Optional[Pipeline] = None # 리뷰 수 예측 모델
+hierarchical_categories_data: Dict = {} # 계층적 카테고리 데이터
+tfidf_vectorizer: Optional[TfidfVectorizer] = None
+tfidf_matrix: Optional[csr_matrix] = None
 df_products: pd.DataFrame = pd.DataFrame() # 상품 메타데이터 및 유사도 분석용
 df_reviews: pd.DataFrame = pd.DataFrame() # 상품별 개별 리뷰 저장용
 DATA_FILE_PATH = os.path.join("data", "cleaned_amazon_0519.csv")
@@ -411,46 +380,73 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
 @app.post("/search-similarity", response_model=List[SimilarityResult])
 def search_similarity(request: SimilarityRequest):
     """
-    입력된 상품 설명과 가장 유사한 상품들을 TF-IDF 및 키워드 점수를 기반으로 찾아서 반환합니다.
+    사용자 입력을 기반으로 3가지 요소를 종합하여 유사 상품을 검색합니다.
+    1. 키워드 점수: 입력 설명에 포함된 주요 기술 키워드(`TECH_KEYWORDS`)가
+                   각 상품 설명에 얼마나 포함되었는지에 따라 점수를 부여합니다.
+    2. 텍스트 유사도(TF-IDF): 입력 설명과 각 상품 설명 간의 의미적 유사도를 계산합니다.
+    3. 가격 유사도: 입력 가격과 각 상품 가격의 근접성을 점수화합니다.
+    최종 유사도는 이 세 가지 점수를 가중 합산하여 결정됩니다.
     """
-    global tfidf_vectorizer, tfidf_matrix, df_products
-    if tfidf_vectorizer is None or tfidf_matrix is None or df_products.empty:
-        raise HTTPException(status_code=503, detail="서버가 아직 준비되지 않았습니다.")
+    if df_products.empty or tfidf_vectorizer is None:
+        raise HTTPException(status_code=503, detail="서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.")
+
+    df_filtered = df_products[df_products['category_cleaned'] == request.category].copy()
+    if df_filtered.empty:
+        return []
+
+    filtered_descriptions = df_filtered['about_product'].astype(str).fillna('')
+    user_desc_vector = tfidf_vectorizer.transform([request.description])
+    text_similarities = cosine_similarity(user_desc_vector, tfidf_vectorizer.transform(filtered_descriptions)).flatten()
+    df_filtered['text_similarity'] = text_similarities
+
+    price_diff = np.abs(df_filtered['discounted_price'] - request.price)
+    max_price_diff = price_diff.max()
+    df_filtered['price_similarity'] = 1.0 if max_price_diff == 0 else 1 - (price_diff / max_price_diff)
+
+    user_keywords = {keyword for keyword in TECH_KEYWORDS if keyword in request.description.lower()}
     
-    input_vector = tfidf_vectorizer.transform([request.description])
-    cosine_similarities = cosine_similarity(input_vector, tfidf_matrix).flatten()
-    similar_indices = cosine_similarities.argsort()[-20:][::-1]
-    
-    KEYWORD_BOOST_FACTOR = 0.05
-    category_keywords = KEYWORD_SETS.get(request.category, [])
+    if not user_keywords:
+        df_filtered['keyword_score'] = 0.0
+    else:
+        # 벡터화된 연산을 위해 apply 대신 str.contains 사용 준비
+        keyword_scores = np.zeros(len(df_filtered))
+        for keyword in user_keywords:
+            # 각 키워드가 포함되어 있으면 1점을 더함
+            keyword_scores += df_filtered['about_product'].astype(str).str.contains(keyword, case=False, na=False).astype(int)
+        
+        df_filtered['keyword_score'] = keyword_scores
+        
+        max_score = df_filtered['keyword_score'].max()
+        if max_score > 0:
+            df_filtered['keyword_score'] = df_filtered['keyword_score'] / max_score
+        else:
+            df_filtered['keyword_score'] = 0.0
+
+    df_filtered['similarity'] = (
+        df_filtered['text_similarity'] * 0.6 +
+        df_filtered['price_similarity'] * 0.2 +
+        df_filtered['keyword_score'] * 0.2
+    ) * 100
+
+    top_10_similar_products = df_filtered.sort_values(by='similarity', ascending=False).head(10)
     
     results = []
-    for i in similar_indices:
-        base_similarity = cosine_similarities[i]
-        keyword_score = sum(1 for keyword in category_keywords if keyword in df_products.iloc[i]['about_product'].lower())
-        final_score = base_similarity + (keyword_score * KEYWORD_BOOST_FACTOR)
-        product_info = df_products.iloc[i].to_dict()
-        product_info['similarity'] = final_score
-        results.append(product_info)
-
-    results.sort(key=lambda x: x['similarity'], reverse=True)
-
-    final_results = []
-    for item in results[:10]: # 상위 10개만 반환
-        product_id = item.get('product_id')
-        product_reviews = df_reviews[df_reviews['product_id'] == product_id]['review_text'].tolist() if product_id else []
-        review_analysis_result = advanced_review_analysis(product_reviews)
-        final_results.append(SimilarityResult(
-            product_id=item.get('product_id', 'N/A'),
-            product_name=item.get('product_name', 'N/A'),
-            category=item.get('category_cleaned', 'N/A'),
-            similarity=item.get('similarity', 0.0),
-            discounted_price=item.get('discounted_price', 0.0),
-            rating=item.get('rating', 0.0),
-            rating_count=int(item.get('rating_count', 0)),
-            review_analysis=ReviewAnalysis(**review_analysis_result)
+    for _, row in top_10_similar_products.iterrows():
+        product_reviews = df_reviews[df_reviews['product_id'] == row['product_id']]['review_text'].tolist()
+        review_analysis_data = advanced_review_analysis(product_reviews)
+        
+        results.append(SimilarityResult(
+            product_id=str(row['product_id']),
+            product_name=str(row['product_name']),
+            category=str(row['category_cleaned']),
+            similarity=round(float(row['similarity']), 2),
+            discounted_price=float(row['discounted_price']),
+            rating=float(row['rating']),
+            rating_count=int(row['rating_count']),
+            review_analysis=ReviewAnalysis(**review_analysis_data)
         ))
-    return final_results
+        
+    return results
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict_star_rating(request: PredictionRequest):
