@@ -88,6 +88,7 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SimilarityResult[]>([]);
   const [similarityWarning, setSimilarityWarning] = useState<string | null>(null);
+  const [productCount, setProductCount] = useState<number | null>(null);
 
   // --- 데이터 로딩 Effect ---
   // 1. 초기 계층형 카테고리 목록 로드
@@ -137,6 +138,30 @@ export default function SearchPage() {
       }
     };
     fetchPriceRange();
+  }, [cat1, cat2, cat3]);
+
+  // 3. 카테고리 선택 시 상품 수 로드
+  useEffect(() => {
+    const fullCategory = cat1 && cat2 && cat3 ? `${cat1} | ${cat2} | ${cat3}` : null;
+    if (!fullCategory) {
+      setProductCount(null);
+      return;
+    }
+
+    const fetchProductCount = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/product-count?category=${encodeURIComponent(fullCategory)}`);
+        if (!response.ok) throw new Error("상품 수 로딩 실패");
+        const count = await response.json();
+        setProductCount(count);
+      } catch (err) {
+        // 에러를 표시하기보다 그냥 null로 설정하여 UI를 깔끔하게 유지
+        setProductCount(null);
+        console.error("Failed to fetch product count:", err);
+      }
+    };
+
+    fetchProductCount();
   }, [cat1, cat2, cat3]);
   
   // 파생 상태 (Memoization)
@@ -239,6 +264,11 @@ export default function SearchPage() {
                     <SelectContent>{cat3Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+                {fullCategorySelected && productCount !== null && (
+                  <p className="text-xs text-gray-500 pt-1">
+                    현재 카테고리 내 상품 수는 <span className="font-semibold text-gray-600">{productCount.toLocaleString()}</span>개입니다.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">상품 설명</Label>
