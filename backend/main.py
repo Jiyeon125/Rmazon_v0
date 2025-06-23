@@ -13,11 +13,6 @@ import os
 import shutil
 from typing import List, Optional, Dict
 import numpy as np
-import math
-
-# --- 상수 정의 ---
-MIN_RATING = 1.0
-MAX_RATING = 5.0
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
@@ -161,6 +156,7 @@ def load_data_and_train_models():
     tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text'])
     print("✅ TF-IDF model training complete!")
     print(f"📈 Total {len(df_products)} unique products and {len(df_reviews)} individual reviews loaded.")
+    print(f"⭐ Rating range found in data: {df_products['rating'].min()} ~ {df_products['rating'].max()}")
 
 
 # --- 서버 시작 시 실행될 로직 ---
@@ -279,15 +275,6 @@ def advanced_review_analysis(reviews: List[str]) -> Dict:
         "review_count": len(reviews)
     }
 
-def squash_to_rating_range(x: float, center: float, scale: float = 0.5) -> float:
-    """
-    시그모이드 함수를 변형하여 입력값 x를 [MIN_RATING, MAX_RATING] 범위로 부드럽게 변환합니다.
-    - center: 변환의 중심이 되는 값 (데이터의 평균 별점 등)
-    - scale: 곡선의 가파른 정도를 조절
-    """
-    k = scale
-    return MIN_RATING + (MAX_RATING - MIN_RATING) / (1 + math.exp(-k * (x - center)))
-
 @app.get("/category-price-range", response_model=PriceRangeResponse)
 def get_category_price_range(category: str = Query(...)):
     """특정 카테고리의 최소 및 최대 가격을 반환합니다."""
@@ -394,10 +381,7 @@ def predict_star_rating(request: PredictionRequest):
     
     predicted_star = ml_pipe.predict(input_data)[0]
     
-    # 예측 결과의 중심점을 데이터셋의 평균 별점으로 사용
-    rating_center = df_products['rating'].mean()
-
-    # 시그모이드 함수를 이용해 예측 결과를 1~5점 사이로 정규화
-    normalized_star = squash_to_rating_range(predicted_star, center=rating_center)
+    # 모델의 예측 결과가 현실적인 별점 범위(0~5)를 벗어나지 않도록 보정
+    clamped_star = max(0.0, min(5.0, predicted_star))
     
-    return {"predicted_star": round(normalized_star, 2)} 
+    return {"predicted_star": round(clamped_star, 2)} 
