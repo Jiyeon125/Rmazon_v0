@@ -362,7 +362,7 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
         except Exception:
             # 예외 발생 시 수동으로 범위 계산
             bin_edges = np.linspace(min_val, max_val, bins + 1)
-            counts = pd.cut(data, bins=bin_edges, include_lowest=True, right=False).value_counts().sort_index().values
+            counts = pd.cut(data, bins=bin_edges, include_lowest=True, right=False).value_counts().sort_index().values # type: ignore
 
         
         histogram = []
@@ -377,7 +377,7 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
             last_item_name = histogram[-1]['name']
             if str(max_val) not in last_item_name.split('-')[1]:
                 # 데이터가 마지막 빈의 경계에 정확히 있을 때 카운트를 마지막 빈에 포함
-                final_count = data[data >= bin_edges[-2]].count()
+                final_count = data[data >= bin_edges[-2]].count() # type: ignore
                 histogram[-1]['count'] = int(final_count)
 
 
@@ -388,9 +388,9 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
         "max_price": filtered_df['discounted_price'].max(),
         "min_review_count": filtered_df['rating_count'].min(),
         "max_review_count": filtered_df['rating_count'].max(),
-        "price_distribution": create_histogram(filtered_df['discounted_price']),
-        "review_count_distribution": create_histogram(filtered_df['rating_count']),
-        "rating_distribution": create_histogram(filtered_df['rating'], bins=8) # 1~5점 별점을 좀 더 세분화
+        "price_distribution": create_histogram(filtered_df['discounted_price']), # type: ignore
+        "review_count_distribution": create_histogram(filtered_df['rating_count']), # type: ignore
+        "rating_distribution": create_histogram(filtered_df['rating'], bins=8) # type: ignore
     }
 
 @app.post("/search-similarity", response_model=List[SimilarityResult])
@@ -400,7 +400,7 @@ def search_similarity(request: SimilarityRequest):
     유사도는 텍스트(TF-IDF)와 가격을 종합하여 계산됩니다.
     각 유사 상품에 대해 개별적인 리뷰 분석을 수행합니다.
     """
-    if df_products.empty or tfidf_matrix is None:
+    if df_products.empty or tfidf_matrix is None or tfidf_vectorizer is None:
         raise HTTPException(status_code=503, detail="서버가 준비되지 않았거나 데이터가 없습니다.")
     if not request.description.strip() or not request.category:
         raise HTTPException(status_code=400, detail="상품 설명과 카테고리를 모두 입력해주세요.")
@@ -489,9 +489,9 @@ def predict_star_rating(request: PredictionRequest):
         if series.empty: return 50.0  # 데이터가 없으면 중간값으로 처리
         return (series < score).sum() / len(series) * 100
 
-    price_percentile = calculate_percentile(filtered_df['discounted_price'], request.price)
-    review_count_percentile = calculate_percentile(filtered_df['rating_count'], request.review_count)
-    rating_percentile = calculate_percentile(filtered_df['rating'], clamped_star)
+    price_percentile = calculate_percentile(filtered_df['discounted_price'], request.price) # type: ignore
+    review_count_percentile = calculate_percentile(filtered_df['rating_count'], request.review_count) # type: ignore
+    rating_percentile = calculate_percentile(filtered_df['rating'], clamped_star) # type: ignore
     
     return {
         "predicted_star": round(clamped_star, 2),
