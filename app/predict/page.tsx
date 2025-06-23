@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { BarChart3, Star, Loader2, AlertCircle } from "lucide-react"
+import { BarChart3, Star, Loader2, AlertCircle, PackageSearch, MessageSquare } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
 
 // --- 데이터 타입 정의 ---
@@ -25,99 +25,110 @@ interface CategoryStats {
 }
 interface PredictionResult {
   predicted_star: number;
+  predicted_review_count: number;
   price_percentile: number;
   review_count_percentile: number;
   rating_percentile: number;
 }
+interface HierarchicalCategories {
+  [key: string]: HierarchicalCategories | {};
+}
 
-const categories = [
-    'Computers&Accessories | Accessories&Peripherals | Cables&Accessories', 'Computers&Accessories | NetworkingDevices | NetworkAdapters', 
-    'Electronics | HomeTheater,TV&Video | Accessories', 'Electronics | HomeTheater,TV&Video | Televisions', 
-    'Electronics | HomeAudio | Accessories', 'Electronics | HomeTheater,TV&Video | Projectors', 
-    'Electronics | HomeTheater,TV&Video | SatelliteEquipment', 'Electronics | HomeAudio | MediaStreamingDevices', 
-    'Electronics | HomeTheater,TV&Video | AVReceivers&Amplifiers', 'Electronics | HomeAudio | Speakers', 
-    'Electronics | WearableTechnology | SmartWatches', 'Electronics | Mobiles&Accessories | MobileAccessories', 
-    'Electronics | Mobiles&Accessories | Smartphones&BasicMobiles', 'Electronics | Accessories | MemoryCards', 
-    'Electronics | Headphones,Earbuds&Accessories | Headphones', 'Computers&Accessories | Accessories&Peripherals | LaptopAccessories', 
-    'Electronics | Headphones,Earbuds&Accessories | Adapters', 'Computers&Accessories | ExternalDevices&DataStorage | PenDrives', 
-    'Computers&Accessories | Accessories&Peripherals | Keyboards,Mice&InputDevices', 'MusicalInstruments | Microphones | Condenser', 
-    'Electronics | GeneralPurposeBatteries&BatteryChargers | DisposableBatteries', 'OfficeProducts | OfficePaperProducts | Paper', 
-    'Home&Kitchen | CraftMaterials | Scrapbooking', 'Computers&Accessories | ExternalDevices&DataStorage | ExternalHardDisks', 
-    'Electronics | Cameras&Photography | VideoCameras', 'Electronics | Cameras&Photography | Accessories', 
-    'OfficeProducts | OfficeElectronics | Calculators', 'Computers&Accessories | NetworkingDevices | Repeaters&Extenders', 
-    'Computers&Accessories | Printers,Inks&Accessories | Inks,Toners&Cartridges', 'Computers&Accessories | Accessories&Peripherals | PCGamingPeripherals', 
-    'Home&Kitchen | CraftMaterials | PaintingMaterials', 'Computers&Accessories | Accessories&Peripherals | HardDiskBags', 
-    'Electronics | Cameras&Photography | Flashes', 'Computers&Accessories | NetworkingDevices', 
-    'Computers&Accessories | NetworkingDevices | Routers', 'Electronics | GeneralPurposeBatteries&BatteryChargers', 
-    'Electronics | GeneralPurposeBatteries&BatteryChargers | RechargeableBatteries', 'Computers&Accessories | Accessories&Peripherals | Adapters', 
-    'Computers&Accessories | Monitors', 'Computers&Accessories | Accessories&Peripherals | USBGadgets', 
-    'Electronics | Cameras&Photography | SecurityCameras', 'Computers&Accessories | Accessories&Peripherals | TabletAccessories', 
-    'Computers&Accessories | Accessories&Peripherals | USBHubs', 'Computers&Accessories | Accessories&Peripherals | Audio&VideoAccessories', 
-    'Computers&Accessories | ExternalDevices&DataStorage | ExternalMemoryCardReaders', 'Computers&Accessories | Components | Memory', 
-    'Computers&Accessories | Accessories&Peripherals | UninterruptedPowerSupplies', 'Electronics | Headphones,Earbuds&Accessories | Cases', 
-    'HomeImprovement | Electrical | Adapters&Multi-Outlets', 'Computers&Accessories | Components | InternalSolidStateDrives', 
-    'Computers&Accessories | NetworkingDevices | DataCards&Dongles', 'Home&Kitchen | CraftMaterials | DrawingMaterials', 
-    'Computers&Accessories | Components | InternalHardDrives', 'Computers&Accessories | Printers,Inks&Accessories | Printers', 
-    'Electronics | Headphones,Earbuds&Accessories | Earpads', 'Toys&Games | Arts&Crafts | Drawing&PaintingSupplies', 
-    'Computers&Accessories | ExternalDevices&DataStorage | ExternalSolidStateDrives', 'Electronics | PowerAccessories | SurgeProtectors', 
-    'Computers&Accessories | Tablets', 'HomeImprovement | Electrical | CordManagement', 
-    'Computers&Accessories | Accessories&Peripherals | HardDriveAccessories', 'Computers&Accessories | Laptops | TraditionalLaptops', 
-    'Home&Kitchen | Kitchen&HomeAppliances | SmallKitchenAppliances', 'Home&Kitchen | Heating,Cooling&AirQuality | RoomHeaters', 
-    'Home&Kitchen | Kitchen&HomeAppliances | Vacuum,Cleaning&Ironing', 'Home&Kitchen | Kitchen&Dining | KitchenTools', 
-    'Home&Kitchen | Heating,Cooling&AirQuality | WaterHeaters&Geysers', 'Home&Kitchen | HomeStorage&Organization | LaundryOrganization', 
-    'Home&Kitchen | Heating,Cooling&AirQuality | Fans', 'Home&Kitchen | Kitchen&HomeAppliances | Coffee,Tea&Espresso', 
-    'Home&Kitchen | Kitchen&HomeAppliances | WaterPurifiers&Accessories', 'Car&Motorbike | CarAccessories | InteriorAccessories', 
-    'Home&Kitchen | Heating,Cooling&AirQuality | AirPurifiers', 'Home&Kitchen | Kitchen&HomeAppliances | SewingMachines&Accessories', 
-    'Health&PersonalCare | HomeMedicalSupplies&Equipment | HealthMonitors', 'Home&Kitchen | Heating,Cooling&AirQuality | Humidifiers', 
-    'Home&Kitchen | Heating,Cooling&AirQuality | AirConditioners', 'Home&Kitchen | Heating,Cooling&AirQuality | Parts&Accessories'
-];
-
-// 헬퍼 함수를 컴포넌트 외부로 이동하여 구문 오류를 해결합니다.
-const safeParseFloat = (str: string) => parseFloat(str.replace(/,/g, ''));
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function PredictPage() {
+  // 상태 관리
   const [price, setPrice] = useState("");
-  const [reviewCount, setReviewCount] = useState("");
-  const [category, setCategory] = useState<string>("");
-
+  const [hierarchicalCategories, setHierarchicalCategories] = useState<HierarchicalCategories>({});
+  const [cat1, setCat1] = useState("");
+  const [cat2, setCat2] = useState("");
+  const [cat3, setCat3] = useState("");
+  const [productCount, setProductCount] = useState<number | null>(null);
+  
   const [isLoading, setIsLoading] = useState(false);
+  const [isMetaLoading, setIsMetaLoading] = useState(false); // 카테고리, 상품 수 로딩
   const [error, setError] = useState<string | null>(null);
   
   const [stats, setStats] = useState<CategoryStats | null>(null);
-  const [isStatsLoading, setIsStatsLoading] = useState(false);
   const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
 
+  // 계층형 카테고리 데이터 로드
   useEffect(() => {
-    if (!category) {
+    const fetchHierarchicalCategories = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/hierarchical-categories`);
+        if (!response.ok) throw new Error("카테고리 목록을 불러오는 데 실패했습니다.");
+        const data = await response.json();
+        setHierarchicalCategories(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "카테고리 로드 중 오류 발생");
+      }
+    };
+    fetchHierarchicalCategories();
+  }, []);
+
+  // 마지막 카테고리 선택 시 상품 수 및 통계 정보 로드
+  useEffect(() => {
+    if (!cat1 || !cat2 || !cat3) {
+      setProductCount(null);
       setStats(null);
       return;
     }
+    
+    const fullCategory = `${cat1} | ${cat2} | ${cat3}`;
 
-    const fetchStats = async () => {
-      setIsStatsLoading(true);
-      setPredictionResult(null); 
+    const fetchMetadata = async () => {
+      setIsMetaLoading(true);
       setError(null);
+      setPredictionResult(null);
       try {
-        const response = await fetch(`http://127.0.0.1:8000/category-stats?category=${encodeURIComponent(category)}`);
-        if (!response.ok) {
-          throw new Error("카테고리 통계 정보를 불러오는 데 실패했습니다.");
-        }
-        const data: CategoryStats = await response.json();
-        setStats(data);
-        setPrice(String(Math.round((data.min_price + data.max_price) / 2)));
-        setReviewCount(String(Math.round((data.min_review_count + data.max_review_count) / 2)));
+        // 상품 수 조회
+        const countResponse = await fetch(`${API_BASE_URL}/product-count?category=${encodeURIComponent(fullCategory)}`);
+        if (!countResponse.ok) throw new Error("상품 수를 불러오는 데 실패했습니다.");
+        const countData = await countResponse.json();
+        setProductCount(countData);
+
+        // 통계 정보 조회
+        const statsResponse = await fetch(`${API_BASE_URL}/category-stats?category=${encodeURIComponent(fullCategory)}`);
+        if (!statsResponse.ok) throw new Error("카테고리 통계 정보를 불러오는 데 실패했습니다.");
+        const statsData: CategoryStats = await statsResponse.json();
+        setStats(statsData);
+        // 기본 가격 설정
+        setPrice(String(Math.round((statsData.min_price + statsData.max_price) / 2)));
+
       } catch (err) {
-        setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
+        setError(err instanceof Error ? err.message : "메타데이터 로드 중 오류 발생");
+        setProductCount(null);
         setStats(null);
       } finally {
-        setIsStatsLoading(false);
+        setIsMetaLoading(false);
       }
     };
-    fetchStats();
-  }, [category]);
 
+    fetchMetadata();
+  }, [cat1, cat2, cat3]);
+
+
+  // 파생 상태 (Memoization)
+  const cat1Options = useMemo(() => Object.keys(hierarchicalCategories), [hierarchicalCategories]);
+  const cat2Options = useMemo(() => cat1 ? Object.keys((hierarchicalCategories as any)[cat1] || {}) : [], [hierarchicalCategories, cat1]);
+  const cat3Options = useMemo(() => cat1 && cat2 ? Object.keys((hierarchicalCategories as any)[cat1]?.[cat2] || {}) : [], [hierarchicalCategories, cat1, cat2]);
+
+  // 카테고리 변경 핸들러
+  const handleCat1Change = (value: string) => {
+    setCat1(value);
+    setCat2("");
+    setCat3("");
+  };
+  const handleCat2Change = (value: string) => {
+    setCat2(value);
+    setCat3("");
+  };
+
+  // 예측 실행 핸들러
   const handlePredict = async () => {
-    if (!price || !reviewCount || !category) {
+    const fullCategory = `${cat1} | ${cat2} | ${cat3}`;
+    if (!price || !fullCategory) {
       setError("모든 값을 입력해주세요.");
       return;
     }
@@ -127,14 +138,15 @@ export default function PredictPage() {
     setPredictionResult(null);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/predict", {
+      const response = await fetch(`${API_BASE_URL}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ price: parseFloat(price), review_count: parseInt(reviewCount), category }),
+        body: JSON.stringify({ price: parseFloat(price), category: fullCategory }),
       });
 
       if (!response.ok) {
-        throw new Error("API 요청에 실패했습니다. 백엔드 서버 상태를 확인해주세요.");
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "API 요청에 실패했습니다.");
       }
 
       const data: PredictionResult = await response.json();
@@ -145,63 +157,69 @@ export default function PredictPage() {
       setIsLoading(false);
     }
   }
+  
+  const fullCategorySelected = cat1 && cat2 && cat3;
 
   return (
     <div className="container mx-auto p-4 md:p-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-3">
+             <div className="flex items-center gap-3">
               <div className="p-3 bg-purple-100 rounded-full">
                 <BarChart3 className="w-6 h-6 text-purple-600" />
               </div>
               <div>
-                <CardTitle className="text-2xl font-bold">상품 별점 예측</CardTitle>
-                <CardDescription>상품 정보를 입력하여 예상 별점을 확인해보세요.</CardDescription>
+                <CardTitle className="text-2xl font-bold">판매 지표 예측</CardTitle>
+                <CardDescription>상품 정보를 입력하여 예상 평점과 리뷰 수를 확인해보세요.</CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6 pt-6">
-            <div className="grid w-full items-center gap-2">
-              <Label htmlFor="category">1. 분석할 상품 카테고리</Label>
-              <Select onValueChange={setCategory} value={category}>
-                <SelectTrigger>
-                  <SelectValue placeholder="카테고리를 선택하세요" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-2">
+              <Label>1. 분석할 상품 카테고리</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Select onValueChange={handleCat1Change} value={cat1}>
+                  <SelectTrigger><SelectValue placeholder="대분류" /></SelectTrigger>
+                  <SelectContent>{cat1Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+                <Select onValueChange={handleCat2Change} value={cat2} disabled={!cat1}>
+                  <SelectTrigger><SelectValue placeholder="중분류" /></SelectTrigger>
+                  <SelectContent>{cat2Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+                <Select onValueChange={setCat3} value={cat3} disabled={!cat2}>
+                  <SelectTrigger><SelectValue placeholder="소분류" /></SelectTrigger>
+                  <SelectContent>{cat3Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
-            {isStatsLoading && (
+            
+            {isMetaLoading && (
               <div className="flex items-center justify-center p-4">
                 <Loader2 className="h-6 w-6 animate-spin" /> 
-                <span className="ml-2">통계 정보 로딩 중...</span>
+                <span className="ml-2">카테고리 정보 로딩 중...</span>
               </div>
             )}
-            {stats && !isStatsLoading && (
-              <>
-                <div className="grid w-full items-center gap-2">
-                  <Label htmlFor="price">2. 가격 (Price)</Label>
-                  <p className="text-xs text-muted-foreground">
-                    이 카테고리의 가격 범위: ₹{stats.min_price.toLocaleString()} ~ ₹{stats.max_price.toLocaleString()}
-                  </p>
-                  <Input id="price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+
+            {fullCategorySelected && !isMetaLoading && productCount !== null && (
+               <div className="p-3 bg-gray-50 rounded-md text-center">
+                  <p className="text-sm text-gray-600">선택한 카테고리의 상품 수</p>
+                  <p className="text-xl font-bold text-purple-700">{productCount.toLocaleString()} 개</p>
                 </div>
-                <div className="grid w-full items-center gap-2">
-                  <Label htmlFor="reviewCount">3. 리뷰 수 (Review Count)</Label>
-                   <p className="text-xs text-muted-foreground">
-                    이 카테고리의 리뷰 수 범위: {stats.min_review_count.toLocaleString()}개 ~ {stats.max_review_count.toLocaleString()}개
-                  </p>
-                  <Input id="reviewCount" type="number" value={reviewCount} onChange={(e) => setReviewCount(e.target.value)} />
-                </div>
-              </>
+            )}
+            
+            {stats && !isMetaLoading && (
+              <div className="grid w-full items-center gap-2">
+                <Label htmlFor="price">2. 가격 (Price)</Label>
+                <p className="text-xs text-muted-foreground">
+                  이 카테고리의 가격 범위: ₹{stats.min_price.toLocaleString()} ~ ₹{stats.max_price.toLocaleString()}
+                </p>
+                <Input id="price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
             )}
           </CardContent>
           <CardFooter>
-            <Button onClick={handlePredict} disabled={isLoading || isStatsLoading || !stats} className="w-full">
+            <Button onClick={handlePredict} disabled={isLoading || isMetaLoading || !stats} className="w-full">
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}
               {isLoading ? "예측 중..." : "결과 분석 및 예측"}
             </Button>
@@ -210,13 +228,13 @@ export default function PredictPage() {
         <Card>
           <CardHeader>
             <CardTitle>종합 분석 결과</CardTitle>
-            <CardDescription>입력한 정보를 바탕으로 시장 내 위치와 예상 별점을 확인합니다.</CardDescription>
+            <CardDescription>입력한 정보를 바탕으로 시장 내 위치와 예상 지표를 확인합니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-8">
             {isLoading && (
-              <div className="flex items-center justify-center p-4">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <span className="ml-2">예측 중...</span>
+              <div className="flex items-center justify-center p-4 h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+                <span className="ml-3 text-lg">결과 분석 중...</span>
               </div>
             )}
             
@@ -227,72 +245,69 @@ export default function PredictPage() {
               </div>
             )}
 
+            {!isLoading && !predictionResult && !error &&(
+                 <div className="flex flex-col items-center justify-center text-center text-gray-500 h-64">
+                    <PackageSearch size={48} className="mb-4" />
+                    <h3 className="text-lg font-semibold">예측 결과 대기 중</h3>
+                    <p className="text-sm">좌측에서 카테고리와 가격을 입력하고<br/>예측 버튼을 눌러주세요.</p>
+                </div>
+            )}
+
             {!isLoading && !error && predictionResult && (
               <>
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">예상 별점</p>
-                    <p className="text-2xl font-bold">{predictionResult.predicted_star.toFixed(2)}</p>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                   <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-muted-foreground flex items-center justify-center gap-1"><Star size={14}/> 예상 평점</p>
+                    <p className="text-3xl font-bold text-purple-700">{predictionResult.predicted_star.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">시장 내 상위 {(100 - predictionResult.rating_percentile).toFixed(1)}%</p>
                   </div>
-                   <div>
-                    <p className="text-sm text-muted-foreground">가격 위치</p>
-                    <p className="text-2xl font-bold">상위 {(100 - predictionResult.price_percentile).toFixed(1)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">리뷰 수 위치</p>
-                    <p className="text-2xl font-bold">상위 {(100 - predictionResult.review_count_percentile).toFixed(1)}%</p>
+                   <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-muted-foreground flex items-center justify-center gap-1"><MessageSquare size={14}/> 예상 리뷰 수</p>
+                    <p className="text-3xl font-bold text-purple-700">{Math.round(predictionResult.predicted_review_count).toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">시장 내 상위 {(100 - predictionResult.review_count_percentile).toFixed(1)}%</p>
                   </div>
                 </div>
 
                 {stats && (
-                  <div className="space-y-8">
+                  <div className="space-y-8 pt-4">
                     <h3 className="text-lg font-semibold border-b pb-2">시장 내 분포도 분석</h3>
-                    <div>
-                      <Label>가격 분포도</Label>
-                      <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={stats.price_distribution}>
-                          <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} interval={0} fontSize={12} />
-                          <YAxis allowDecimals={false} />
-                          <Tooltip cursor={{fill: 'rgba(200, 200, 200, 0.3)'}} />
-                          <Bar dataKey="count" name="상품 수">
+                     <div>
+                      <Label className="text-sm">가격 분포 (Price Distribution)</Label>
+                       <p className="text-xs text-muted-foreground">
+                        입력 가격: <span className="font-bold">₹{parseFloat(price).toLocaleString()}</span> (상위 {(100 - predictionResult.price_percentile).toFixed(1)}%)
+                      </p>
+                      <ResponsiveContainer width="100%" height={150}>
+                        <BarChart data={stats.price_distribution} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                          <XAxis dataKey="name" fontSize={10} tick={{ fill: '#666' }} angle={-30} textAnchor="end" height={50} />
+                          <YAxis fontSize={12} tick={{ fill: '#666' }} />
+                          <Tooltip formatter={(value) => `${value}개`} />
+                          <Bar dataKey="count" fill="#8884d8" radius={[4, 4, 0, 0]}>
                             {stats.price_distribution.map((entry, index) => {
-                              const [start, end] = entry.name.split('-').map(safeParseFloat);
-                              return <Cell key={`cell-${index}`} fill={ parseFloat(price) >= start && parseFloat(price) < end ? "#8884d8" : "#d1d5db" } />
+                              const entryPrice = parseFloat(entry.name.split('-')[0].replace(/,/g, ''));
+                              const inputPrice = parseFloat(price);
+                              return <Cell key={`cell-${index}`} fill={inputPrice >= entryPrice ? "#6d28d9" : "#c4b5fd"} />;
                             })}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                      <div>
-                      <Label>리뷰 수 분포도</Label>
-                       <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={stats.review_count_distribution}>
-                           <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} interval={0} fontSize={12} />
-                          <YAxis allowDecimals={false} />
-                          <Tooltip cursor={{fill: 'rgba(200, 200, 200, 0.3)'}} />
-                          <Bar dataKey="count" name="상품 수">
+                      <Label className="text-sm">리뷰 수 분포 (Review Count Distribution)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        예상 리뷰 수: <span className="font-bold">{Math.round(predictionResult.predicted_review_count).toLocaleString()}개</span> (상위 {(100 - predictionResult.review_count_percentile).toFixed(1)}%)
+                      </p>
+                      <ResponsiveContainer width="100%" height={150}>
+                        <BarChart data={stats.review_count_distribution} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                           <XAxis dataKey="name" fontSize={10} tick={{ fill: '#666' }} angle={-30} textAnchor="end" height={50} />
+                          <YAxis fontSize={12} tick={{ fill: '#666' }} />
+                          <Tooltip formatter={(value) => `${value}개`} />
+                          <Bar dataKey="count" fill="#8884d8" radius={[4, 4, 0, 0]}>
                              {stats.review_count_distribution.map((entry, index) => {
-                                const [start, end] = entry.name.split('-').map(safeParseFloat);
-                                return <Cell key={`cell-${index}`} fill={ parseInt(reviewCount) >= start && parseInt(reviewCount) < end ? "#82ca9d" : "#d1d5db" } />
-                             })}
+                              const entryReviewCount = parseFloat(entry.name.split('-')[0].replace(/,/g, ''));
+                              const predictedReviewCount = predictionResult.predicted_review_count;
+                              return <Cell key={`cell-${index}`} fill={predictedReviewCount >= entryReviewCount ? "#6d28d9" : "#c4b5fd"} />;
+                            })}
                           </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                     <div>
-                      <Label>예상 별점 분포도</Label>
-                      <p className="text-xs text-muted-foreground">예측된 별점은 이 시장에서 상위 {(100 - predictionResult.rating_percentile).toFixed(1)}% 수준입니다.</p>
-                       <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={stats.rating_distribution}>
-                           <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} interval={0} fontSize={12} />
-                          <YAxis allowDecimals={false} />
-                           <Tooltip cursor={{fill: 'rgba(200, 200, 200, 0.3)'}}/>
-                          <Bar dataKey="count" name="상품 수">
-                             {stats.rating_distribution.map((entry, index) => {
-                                const [start, end] = entry.name.split('-').map(safeParseFloat);
-                                return <Cell key={`cell-${index}`} fill={ predictionResult.predicted_star >= start && predictionResult.predicted_star < end ? "#ffc658" : "#d1d5db" } />
-                             })}
-                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -300,15 +315,9 @@ export default function PredictPage() {
                 )}
               </>
             )}
-
-            {!isLoading && !error && !predictionResult && (
-              <div className="text-center text-muted-foreground py-10">
-                카테고리를 선택하고 값을 입력한 후, 예측 버튼을 눌러주세요.
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
     </div>
-  );
+  )
 }
