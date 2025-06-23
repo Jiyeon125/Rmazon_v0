@@ -26,12 +26,12 @@ class Keyword(BaseModel):
 
 class PredictionRequest(BaseModel):
     price: float
-    review_count: int
     category: str
 
 # 응답 본문의 데이터 구조를 정의합니다.
 class PredictionResponse(BaseModel):
     predicted_star: float
+    predicted_review_count: float
     price_percentile: float
     review_count_percentile: float
     rating_percentile: float
@@ -112,15 +112,17 @@ app.add_middleware(
 
 # --- 전역 변수: 모델, 데이터, 전처리기 ---
 ml_pipe = None
+review_count_pipe = None # 리뷰 수 예측 모델
+hierarchical_categories_data = {} # 계층적 카테고리 데이터
 tfidf_vectorizer = None
 tfidf_matrix = None
-df_products = pd.DataFrame() # 상품 메타데이터 및 유사도 분석용
-df_reviews = pd.DataFrame() # 상품별 개별 리뷰 저장용
+df_products: pd.DataFrame = pd.DataFrame() # 상품 메타데이터 및 유사도 분석용
+df_reviews: pd.DataFrame = pd.DataFrame() # 상품별 개별 리뷰 저장용
 DATA_FILE_PATH = os.path.join("data", "cleaned_amazon_0519.csv")
 
 # --- 핵심 로직: 데이터 로딩 및 모델 학습 ---
 def load_data_and_train_models():
-    global ml_pipe, tfidf_vectorizer, tfidf_matrix, df_products, df_reviews
+    global ml_pipe, review_count_pipe, tfidf_vectorizer, tfidf_matrix, df_products, df_reviews, hierarchical_categories_data
     
     if not os.path.exists(DATA_FILE_PATH):
         print(f"⚠️ 데이터 파일이 존재하지 않습니다: {DATA_FILE_PATH}")
@@ -176,23 +178,46 @@ def load_data_and_train_models():
         return
         
     # --- 4. 모델 학습 ---
-    # 릿지 회귀 모델 학습 (별점 예측용)
-    X_ridge = df_products[['discounted_price', 'rating_count', 'category_cleaned']]
-    y_ridge = df_products['rating']
-    numeric_features = ['discounted_price', 'rating_count']
+    numeric_features = ['discounted_price']
     categorical_features = ['category_cleaned']
+    
+    # 입력 특성을 명시적으로 지정
+    X_features = df_products[numeric_features + categorical_features]
+
     preprocessor = ColumnTransformer(
         transformers=[
             ('num', StandardScaler(), numeric_features),
-            ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)])
+            ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)])
+
+    # 모델 1: 별점 예측(y_rating)
+    y_rating = df_products['rating']
     ml_pipe = Pipeline(steps=[('preprocessor', preprocessor), ('regressor', Ridge(alpha=1.0))])
-    ml_pipe.fit(X_ridge, y_ridge)
-    print("✅ Ridge Regression model training complete!")
+    ml_pipe.fit(X_features, y_rating)
+    print("✅ Rating Prediction model training complete!")
+
+    # 모델 2: 리뷰 수 예측(y_review_count)
+    y_review_count = df_products['rating_count']
+    review_count_pipe = Pipeline(steps=[('preprocessor', preprocessor), ('regressor', Ridge(alpha=1.0))])
+    review_count_pipe.fit(X_features, y_review_count)
+    print("✅ Review Count Prediction model training complete!")
 
     # TF-IDF 모델 학습 (유사도 분석용)
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
-    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text'])
+    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text']) # type: ignore
     print("✅ TF-IDF model training complete!")
+    
+    # --- 5. 계층적 카테고리 데이터 생성 ---
+    temp_hierarchical_data = {}
+    for cat_string in df_products['category_cleaned'].unique():
+        parts = cat_string.split(' | ')
+        current_level = temp_hierarchical_data
+        for part in parts:
+            if part not in current_level:
+                current_level[part] = {}
+            current_level = current_level[part]
+    hierarchical_categories_data = temp_hierarchical_data
+    print("✅ Hierarchical category data created!")
+
     print(f"📈 Total {len(df_products)} unique products and {len(df_reviews)} individual reviews loaded.")
     print(f"⭐ Rating range found in data: {df_products['rating'].min()} ~ {df_products['rating'].max()}")
 
@@ -246,6 +271,22 @@ def get_categories():
     if df_products.empty:
         return []
     return sorted(df_products['category_cleaned'].unique().tolist())
+
+@app.get("/hierarchical-categories", response_model=Dict)
+def get_hierarchical_categories():
+    """계층 구조의 카테고리 데이터를 반환합니다."""
+    if not hierarchical_categories_data:
+        raise HTTPException(status_code=503, detail="서버 데이터가 준비되지 않았습니다.")
+    return hierarchical_categories_data
+
+@app.get("/product-count", response_model=int)
+def get_product_count(category: str = Query(..., description="상품 수를 조회할 전체 카테고리 경로")):
+    """선택된 전체 카테고리 경로에 해당하는 상품의 수를 반환합니다."""
+    if df_products.empty:
+        raise HTTPException(status_code=503, detail="서버 데이터가 준비되지 않았습니다.")
+    
+    count = df_products[df_products['category_cleaned'] == category].shape[0]
+    return count
 
 @app.get("/products", response_model=List[Product])
 def get_products(category: Optional[str] = Query(None)):
@@ -467,20 +508,22 @@ def search_similarity(request: SimilarityRequest):
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict_star_rating(request: PredictionRequest):
-    if ml_pipe is None or df_products.empty:
+    if ml_pipe is None or review_count_pipe is None or df_products.empty:
         raise HTTPException(status_code=503, detail="예측 모델이 준비되지 않았습니다.")
         
     input_data_dict = {
         'discounted_price': request.price,
-        'rating_count': request.review_count,
         'category_cleaned': request.category
     }
     input_data = pd.DataFrame([input_data_dict])
     
+    # 별점 및 리뷰 수 예측
     predicted_star = ml_pipe.predict(input_data)[0]
+    predicted_review_count = review_count_pipe.predict(input_data)[0]
     
-    # 모델의 예측 결과가 현실적인 별점 범위(0~5)를 벗어나지 않도록 보정
+    # 모델의 예측 결과가 현실적인 범위를 벗어나지 않도록 보정
     clamped_star = max(0.0, min(5.0, predicted_star))
+    clamped_review_count = max(0.0, predicted_review_count) # 리뷰 수는 음수가 될 수 없음
 
     # --- 백분위 계산 로직 ---
     filtered_df = df_products[df_products['category_cleaned'] == request.category]
@@ -490,11 +533,12 @@ def predict_star_rating(request: PredictionRequest):
         return (series < score).sum() / len(series) * 100
 
     price_percentile = calculate_percentile(filtered_df['discounted_price'], request.price) # type: ignore
-    review_count_percentile = calculate_percentile(filtered_df['rating_count'], request.review_count) # type: ignore
+    review_count_percentile = calculate_percentile(filtered_df['rating_count'], clamped_review_count) # type: ignore
     rating_percentile = calculate_percentile(filtered_df['rating'], clamped_star) # type: ignore
     
     return {
         "predicted_star": round(clamped_star, 2),
+        "predicted_review_count": round(clamped_review_count, 0),
         "price_percentile": round(price_percentile, 1),
         "review_count_percentile": round(review_count_percentile, 1),
         "rating_percentile": round(rating_percentile, 1),
