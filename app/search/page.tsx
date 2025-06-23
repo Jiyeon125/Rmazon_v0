@@ -390,7 +390,7 @@ export default function SearchPage() {
                           <div>
                             <p className="text-sm font-medium">주요 부정 키워드</p>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="outline" className="border-red-300 text-red-700 bg-white hover:bg-red-50">{kw}</Badge>)}
+                              {result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="outline" className="border-red-300 text-red-700 bg-transparent hover:bg-red-50">{kw}</Badge>)}
                             </div>
                           </div>
                         </div>

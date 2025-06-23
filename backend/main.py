@@ -131,27 +131,34 @@ def load_data_and_train_models():
 
     df_raw = pd.read_csv(DATA_FILE_PATH)
     
-    required_columns = ['product_id', 'product_name', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
+    required_columns = ['product_id', 'product_name', 'about_product', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
     if any(col not in df_raw.columns for col in required_columns):
-        raise ValueError(f"필수 컬럼 중 일부가 누락되었습니다.")
+        missing_cols = [col for col in required_columns if col not in df_raw.columns]
+        raise ValueError(f"필수 컬럼 중 일부가 누락되었습니다: {', '.join(missing_cols)}")
 
     # --- 1. 기본 클리닝 및 타입 변환 ---
+    df_raw['about_product'] = df_raw['about_product'].fillna('')
     df_raw['review_title'] = df_raw['review_title'].fillna('')
     df_raw['review_content'] = df_raw['review_content'].fillna('')
     for col in ['discounted_price', 'rating_count', 'rating']:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
     df_raw.dropna(subset=['product_id', 'discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
 
-    # --- 2. 리뷰 분리 및 df_reviews 생성 ---
+    # --- 2. 리뷰 분리 및 df_reviews 생성 (제목 + 내용 결합) ---
     reviews_list = []
     for _, row in df_raw.iterrows():
         # review_content를 쉼표로 분리하여 개별 리뷰 리스트 생성
-        # 내용이 없는 빈 리뷰는 제외
         contents = [c.strip() for c in str(row['review_content']).split(',') if c.strip()]
+        
+        # 리뷰 제목을 내용 앞에 붙여줌
+        title = str(row['review_title']).strip()
+        
         for content_part in contents:
+            # 제목과 내용을 합쳐서 하나의 텍스트로 만듦
+            full_review_text = (title + ' ' + content_part).strip()
             reviews_list.append({
                 'product_id': row['product_id'],
-                'review_text': content_part
+                'review_text': full_review_text
             })
     
     df_reviews = pd.DataFrame(reviews_list)
@@ -162,13 +169,10 @@ def load_data_and_train_models():
         return
 
     # --- 3. 유사도 분석용 df_products 생성 ---
-    # 상품별로 분리된 리뷰 텍스트를 다시 하나로 합쳐 'combined_text' 생성
-    df_aggregated_reviews = df_reviews.groupby('product_id')['review_text'].apply(lambda x: ' '.join(x)).reset_index()
-    df_aggregated_reviews.rename(columns={'review_text': 'combined_text'}, inplace=True)
-
-    # 원본 데이터에서 상품 메타데이터(리뷰 제외)를 가져와 결합
-    df_meta = df_raw.drop(columns=['review_title', 'review_content']).drop_duplicates(subset=['product_id']).set_index('product_id')
-    df_products = df_aggregated_reviews.merge(df_meta, on='product_id', how='left')
+    # 상품 메타데이터(리뷰 제외)를 가져와 중복 제거
+    # 'about_product'가 포함되었는지 확인
+    df_meta_cols = ['product_id', 'product_name', 'about_product', 'category_cleaned', 'discounted_price', 'rating_count', 'rating']
+    df_products = df_raw[df_meta_cols].drop_duplicates(subset=['product_id']).copy()
     
     # 모델 학습에 필요한 컬럼이 모두 있는지 최종 확인
     df_products.dropna(subset=['discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
@@ -201,10 +205,10 @@ def load_data_and_train_models():
     review_count_pipe.fit(X_features, y_review_count)
     print("✅ Review Count Prediction model training complete!")
 
-    # TF-IDF 모델 학습 (유사도 분석용)
+    # TF-IDF 모델 학습 (유사도 분석용) - 'about_product' 컬럼을 사용하도록 수정
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
-    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text']) # type: ignore
-    print("✅ TF-IDF model training complete!")
+    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['about_product']) # type: ignore
+    print("✅ TF-IDF model (based on product description) training complete!")
     
     # --- 5. 계층적 카테고리 데이터 생성 ---
     temp_hierarchical_data = {}
@@ -246,7 +250,7 @@ async def upload_csv(file: UploadFile = File(...)):
     # 새 파일 검증
     try:
         df_new = pd.read_csv(temp_file_path)
-        required_columns = ['product_id', 'product_name', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
+        required_columns = ['product_id', 'product_name', 'about_product', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
         missing = [col for col in required_columns if col not in df_new.columns]
         if missing:
             raise HTTPException(status_code=400, detail=f"필수 컬럼 누락: {', '.join(missing)}")
@@ -324,23 +328,36 @@ def advanced_review_analysis(reviews: List[str]) -> Dict[str, Any]:
     
     sid = SentimentIntensityAnalyzer()
     
-    pos_scores, neg_scores, neu_scores = [], [], []
+    pos_count, neg_count, neu_count = 0, 0, 0
+    pos_scores_for_keywords, neg_scores_for_keywords = [], []
+
     for review in valid_reviews:
         sentiment = sid.polarity_scores(review)
-        pos_scores.append(sentiment['pos'])
-        neg_scores.append(sentiment['neg'])
-        neu_scores.append(sentiment['neu'])
+        
+        # 전체 분류를 위해 compound 점수 사용
+        compound_score = sentiment['compound']
+        if compound_score >= 0.05:
+            pos_count += 1
+        elif compound_score <= -0.05:
+            neg_count += 1
+        else:
+            neu_count += 1
+        
+        # 키워드 분석을 위해 기존 pos/neg 점수 유지
+        pos_scores_for_keywords.append(sentiment['pos'])
+        neg_scores_for_keywords.append(sentiment['neg'])
 
     total_reviews = len(valid_reviews)
-    positive_percentage = sum(1 for p in pos_scores if p > 0.1) / total_reviews * 100
-    negative_percentage = sum(1 for n in neg_scores if n > 0.1) / total_reviews * 100
-    neutral_percentage = 100 - positive_percentage - negative_percentage
+    positive_percentage = (pos_count / total_reviews) * 100 if total_reviews > 0 else 0
+    negative_percentage = (neg_count / total_reviews) * 100 if total_reviews > 0 else 0
+    neutral_percentage = (neu_count / total_reviews) * 100 if total_reviews > 0 else 100
+
 
     feature_names = np.array(vectorizer.get_feature_names_out())
 
     # 각 키워드의 평균 긍정/부정 점수 계산
-    pos_word_scores = tfidf_matrix_local.T.dot(pos_scores) # type: ignore
-    neg_word_scores = tfidf_matrix_local.T.dot(neg_scores) # type: ignore
+    pos_word_scores = tfidf_matrix_local.T.dot(pos_scores_for_keywords) # type: ignore
+    neg_word_scores = tfidf_matrix_local.T.dot(neg_scores_for_keywords) # type: ignore
 
     top_positive_indices = pos_word_scores.argsort()[-5:][::-1]
     top_negative_indices = neg_word_scores.argsort()[-5:][::-1]
@@ -467,17 +484,21 @@ def search_similarity(request: SimilarityRequest):
 
     # 4. 상위 5개 상품 선정
     top_n = 5
-    # 점수가 0인 경우는 제외하고, 상위 N개를 찾음
-    valid_scores_indices = np.where(combined_scores > 0)[0]
-    if len(valid_scores_indices) == 0:
-        return []
+    # 점수가 0보다 큰 상품들만 필터링
+    valid_scores = combined_scores[combined_scores > 0]
     
-    top_indices = valid_scores_indices[np.argsort(combined_scores[valid_scores_indices])[-top_n:]][::-1]
+    if valid_scores.empty:
+        return []
+
+    # 가장 점수가 높은 상위 N개의 상품을 선택 (결과는 '인덱스 라벨: 점수' 형태의 Series)
+    top_products = valid_scores.nlargest(top_n)
 
     # 5. 최종 결과 생성 (상품별 개별 분석)
     results = []
-    for idx in top_indices:
-        product_row = df_products.iloc[idx]
+    # top_products.items()를 사용하여 인덱스 라벨(idx_label)과 점수(score)를 함께 순회
+    for idx_label, score in top_products.items():
+        # .loc를 사용하여 라벨 기반으로 상품 정보 조회
+        product_row = df_products.loc[idx_label]
         product_id = product_row['product_id']
         
         # 상품별 개별 리뷰 추출
@@ -497,7 +518,7 @@ def search_similarity(request: SimilarityRequest):
             product_id=product_id,
             product_name=product_row['product_name'],
             category=product_row['category_cleaned'],
-            similarity=combined_scores[idx],
+            similarity=score,  # nlargest에서 얻은 정확한 점수 사용
             discounted_price=product_row['discounted_price'],
             rating=product_row['rating'],
             rating_count=product_row['rating_count'],
