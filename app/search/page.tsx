@@ -89,6 +89,7 @@ export default function SearchPage() {
   const [results, setResults] = useState<SimilarityResult[]>([]);
   const [similarityWarning, setSimilarityWarning] = useState<string | null>(null);
   const [productCount, setProductCount] = useState<number | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   // --- 데이터 로딩 Effect ---
   // 1. 초기 계층형 카테고리 목록 로드
@@ -194,6 +195,7 @@ export default function SearchPage() {
     setError(null);
     setResults([]);
     setSimilarityWarning(null);
+    setHasSearched(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/search-similarity`, {
@@ -222,10 +224,10 @@ export default function SearchPage() {
         const avgSim = data.reduce((acc, r) => acc + r.similarity, 0) / data.length;
         
         if (maxSim < 0.6) {
-          warnings.push("⚠️ 주의: 최고 유사도가 60% 미만입니다.");
+          warnings.push("⚠️ 주의: 최고 유사도가 60% 미만입니다. 입력한 설명과 매우 유사한 제품이 거의 없으며, 유사 제품 목록의 정확도가 낮을 수 있습니다.");
         }
         if (avgSim < 0.5) {
-          warnings.push("⚠️ 주의: 평균 유사도가 50% 미만입니다.");
+          warnings.push("⚠️ 주의: 평균 유사도가 50% 미만입니다. 입력한 설명이 다른 제품들과 전반적으로 크게 다르며, 입력 정보를 조정하여 더 정확한 결과를 얻을 수 있습니다.");
         }
       }
       setSimilarityWarning(warnings.join('|'));
@@ -364,8 +366,17 @@ export default function SearchPage() {
             </div>
           )}
 
-          {/* 결과 없음 블록: 로딩/에러가 없고, 결과가 없을 때 렌더링 */}
-          {!isLoading && !error && results.length === 0 && (
+          {/* 초기 안내 블록: 검색 전(!hasSearched)에만 표시 */}
+          {!isLoading && !error && !hasSearched && (
+            <div className="flex flex-col items-center justify-center h-full text-center bg-white rounded-lg p-8 shadow-sm">
+              <Sparkles className="w-16 h-16 text-gray-300 mb-4" />
+              <h3 className="text-xl font-semibold text-gray-600">분석 결과가 여기에 표시됩니다.</h3>
+              <p className="text-gray-400 mt-1">좌측에서 상품 정보를 입력하고 분석 버튼을 눌러주세요.</p>
+            </div>
+          )}
+
+          {/* 결과 없음 블록: 검색 후(hasSearched) 결과가 없을 때만 표시 */}
+          {!isLoading && !error && hasSearched && results.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center bg-white rounded-lg p-8 shadow-sm">
               <PackageSearch className="w-16 h-16 text-gray-300 mb-4" />
               <h3 className="text-xl font-semibold mb-1">결과 없음</h3>
