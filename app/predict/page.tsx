@@ -36,8 +36,10 @@ interface HierarchicalCategories {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-// --- Helper Function for Chart Data ---
-const processDistribution = (
+// --- Helper Functions for Chart Data ---
+
+// For binned data like price and review count
+const processBinnedDistribution = (
   distribution: DistributionBin[], 
   userValue: number | null, 
   predictedValue: number | null
@@ -66,6 +68,24 @@ const processDistribution = (
       ...bin,
       isUser: isUserInRange,
       isPredicted: isPredictedInRange,
+    };
+  });
+};
+
+// For single value data like rating
+const processRatingDistribution = (
+  distribution: DistributionBin[],
+  predictedValue: number | null
+) => {
+  if (!distribution || distribution.length === 0) return [];
+
+  return distribution.map(bin => {
+    // Exact match for rating
+    const isPredicted = predictedValue !== null && parseFloat(bin.name) === predictedValue;
+    return {
+      ...bin,
+      isUser: false, // User doesn't input a rating
+      isPredicted,
     };
   });
 };
@@ -196,17 +216,17 @@ export default function PredictPage() {
 
   // Processed data for charts using the helper function
   const processedPriceDistribution = useMemo(() => 
-    stats ? processDistribution(stats.price_distribution, parseFloat(price), null) : [],
+    stats ? processBinnedDistribution(stats.price_distribution, parseFloat(price), null) : [],
     [stats, price]
   );
 
   const processedReviewDistribution = useMemo(() =>
-    stats && predictionResult ? processDistribution(stats.review_count_distribution, null, predictionResult.predicted_review_count) : (stats ? processDistribution(stats.review_count_distribution, null, null) : []),
+    stats && predictionResult ? processBinnedDistribution(stats.review_count_distribution, null, predictionResult.predicted_review_count) : (stats ? processBinnedDistribution(stats.review_count_distribution, null, null) : []),
     [stats, predictionResult]
   );
 
   const processedRatingDistribution = useMemo(() =>
-    stats && predictionResult ? processDistribution(stats.rating_distribution, null, predictionResult.predicted_star) : (stats ? processDistribution(stats.rating_distribution, null, null) : []),
+    stats && predictionResult ? processRatingDistribution(stats.rating_distribution, predictionResult.predicted_star) : (stats ? processRatingDistribution(stats.rating_distribution, null) : []),
     [stats, predictionResult]
   );
 

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag, ChevronsUpDown } from "lucide-react"
+import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag, ChevronsUpDown, PackageSearch } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -216,12 +216,19 @@ export default function SearchPage() {
       setResults(data);
 
       // 유사도 경고 체크
+      const warnings: string[] = [];
       if (data.length > 0) {
         const maxSim = Math.max(...data.map(r => r.similarity));
         const avgSim = data.reduce((acc, r) => acc + r.similarity, 0) / data.length;
-        if (maxSim < 0.6) setSimilarityWarning("⚠️ 주의: 최고 유사도가 60% 미만입니다. 입력한 설명과 매우 유사한 제품이 거의 없으며, 유사 제품 목록의 정확도가 낮을 수 있습니다.");
-        else if (avgSim < 0.5) setSimilarityWarning("⚠️ 주의: 평균 유사도가 50% 미만입니다. 입력한 설명이 다른 제품들과 전반적으로 크게 다르며, 입력 정보를 조정하여 더 정확한 결과를 얻을 수 있습니다.");
+        
+        if (maxSim < 0.6) {
+          warnings.push("⚠️ 주의: 최고 유사도가 60% 미만입니다.");
+        }
+        if (avgSim < 0.5) {
+          warnings.push("⚠️ 주의: 평균 유사도가 50% 미만입니다.");
+        }
       }
+      setSimilarityWarning(warnings.join('|'));
 
     } catch (err) {
        setError(err instanceof Error ? err.message : "유사도 분석 중 오류 발생");
@@ -322,13 +329,6 @@ export default function SearchPage() {
             {isLoading ? "분석 중..." : (isDataLoading && !cat1 ? "카테고리 로딩 중..." : "유사 상품 분석")}
           </Button>
 
-          {similarityWarning && !isLoading && (
-            <div className="p-3 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-md flex items-center gap-2 text-sm">
-              <AlertCircle className="h-5 w-5 flex-shrink-0" />
-              <p>{similarityWarning}</p>
-            </div>
-          )}
-
           {error && (
             <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-md flex items-center gap-2">
               <AlertCircle className="h-5 w-5" />
@@ -347,15 +347,34 @@ export default function SearchPage() {
             </div>
           )}
 
-          {!isLoading && results.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full bg-white rounded-lg border-2 border-dashed">
-              <Sparkles className="w-16 h-16 text-gray-300 mb-4" />
-              <h3 className="text-xl font-semibold text-gray-600">분석 결과가 여기에 표시됩니다.</h3>
-              <p className="text-gray-400 mt-1">좌측에서 상품 정보를 입력하고 분석 버튼을 눌러주세요.</p>
+          {!isLoading && error && (
+            <div className="text-red-500 bg-red-100 p-4 rounded-md">
+              <p>{error}</p>
             </div>
           )}
 
-          {!isLoading && results.length > 0 && (
+          {/* 경고 블록: 경고가 있을 때만 렌더링 */}
+          {similarityWarning && (
+            <div className="space-y-2">
+              {similarityWarning.split('|').filter(w => w).map((warning, index) => (
+                <div key={index} className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-md" role="alert">
+                  <p>{warning}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 결과 없음 블록: 로딩/에러가 없고, 결과가 없을 때 렌더링 */}
+          {!isLoading && !error && results.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-center bg-white rounded-lg p-8 shadow-sm">
+              <PackageSearch className="w-16 h-16 text-gray-300 mb-4" />
+              <h3 className="text-xl font-semibold mb-1">결과 없음</h3>
+              <p className="text-gray-500">입력한 조건과 일치하는 상품을 찾지 못했습니다.</p>
+            </div>
+          )}
+
+          {/* 결과 카드: 로딩/에러가 없고, 결과가 있을 때 렌더링 */}
+          {!isLoading && !error && results.length > 0 && (
             <div className="space-y-6">
               {results.map((result, index) => {
                 const sentiment = getSentimentSummary(result.review_analysis);
