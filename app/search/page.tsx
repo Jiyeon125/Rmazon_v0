@@ -44,6 +44,20 @@ interface HierarchicalCategories {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+// --- 헬퍼 함수 ---
+const getSentimentSummary = (analysis: ReviewAnalysis): { text: string; color: string } => {
+  const { positive_percentage, negative_percentage } = analysis;
+
+  if (positive_percentage >= 70) return { text: "아주 긍정적", color: "text-green-700" };
+  if (negative_percentage >= 60) return { text: "아주 부정적", color: "text-red-700" };
+  if (positive_percentage >= 35 && negative_percentage >= 35) return { text: "평가가 극단적임", color: "text-yellow-700" };
+  
+  if (positive_percentage > negative_percentage * 1.5) return { text: "대체로 긍정적", color: "text-green-600" };
+  if (negative_percentage > positive_percentage * 1.5) return { text: "대체로 부정적", color: "text-red-600" };
+  
+  return { text: "중립적", color: "text-gray-600" };
+};
+
 // --- 컴포넌트 ---
 
 const SentimentIcon = ({ sentiment }: { sentiment: 'positive' | 'negative' | 'neutral' }) => {
@@ -73,6 +87,7 @@ export default function SearchPage() {
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SimilarityResult[]>([]);
+  const [similarityWarning, setSimilarityWarning] = useState<string | null>(null);
 
   // --- 데이터 로딩 Effect ---
   // 1. 초기 계층형 카테고리 목록 로드
@@ -129,6 +144,8 @@ export default function SearchPage() {
   const cat2Options = useMemo(() => cat1 ? Object.keys((hierarchicalCategories as any)[cat1] || {}) : [], [hierarchicalCategories, cat1]);
   const cat3Options = useMemo(() => cat1 && cat2 ? Object.keys((hierarchicalCategories as any)[cat1]?.[cat2] || {}) : [], [hierarchicalCategories, cat1, cat2]);
 
+  const discountedPrice = useMemo(() => price * (1 - discount / 100), [price, discount]);
+
   // 카테고리 변경 핸들러
   const handleCat1Change = (value: string) => {
     setCat1(value);
@@ -151,6 +168,7 @@ export default function SearchPage() {
     setIsLoading(true);
     setError(null);
     setResults([]);
+    setSimilarityWarning(null);
 
     try {
       const response = await fetch(`${API_BASE_URL}/search-similarity`, {
@@ -171,6 +189,14 @@ export default function SearchPage() {
       
       const data: SimilarityResult[] = await response.json();
       setResults(data);
+
+      // 유사도 경고 체크
+      if (data.length > 0) {
+        const maxSim = Math.max(...data.map(r => r.similarity));
+        const avgSim = data.reduce((acc, r) => acc + r.similarity, 0) / data.length;
+        if (maxSim < 0.6) setSimilarityWarning("⚠️ 주의: 최고 유사도가 60% 미만입니다. 입력한 설명과 매우 유사한 제품이 거의 없으며, 유사 제품 목록의 정확도가 낮을 수 있습니다.");
+        else if (avgSim < 0.5) setSimilarityWarning("⚠️ 주의: 평균 유사도가 50% 미만입니다. 입력한 설명이 다른 제품들과 전반적으로 크게 다르며, 입력 정보를 조정하여 더 정확한 결과를 얻을 수 있습니다.");
+      }
 
     } catch (err) {
        setError(err instanceof Error ? err.message : "유사도 분석 중 오류 발생");
@@ -256,6 +282,7 @@ export default function SearchPage() {
                   value={[discount]}
                   onValueChange={(value) => setDiscount(value[0])}
                 />
+                <p className="text-sm text-muted-foreground mt-1 pl-1">적용된 상품 가격 : <span className="font-bold text-gray-800">₹{discountedPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span></p>
               </div>
             </CardContent>
           </Card>
@@ -264,6 +291,13 @@ export default function SearchPage() {
             {isLoading || isDataLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Search className="mr-2 h-5 w-5" />}
             {isLoading ? "분석 중..." : (isDataLoading && !cat1 ? "카테고리 로딩 중..." : "유사 상품 분석")}
           </Button>
+
+          {similarityWarning && !isLoading && (
+            <div className="p-3 bg-yellow-50 text-yellow-800 border border-yellow-200 rounded-md flex items-center gap-2 text-sm">
+              <AlertCircle className="h-5 w-5 flex-shrink-0" />
+              <p>{similarityWarning}</p>
+            </div>
+          )}
 
           {error && (
             <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-md flex items-center gap-2">
@@ -293,29 +327,31 @@ export default function SearchPage() {
 
           {!isLoading && results.length > 0 && (
             <div className="space-y-6">
-              {results.map((result, index) => (
-                <Card key={result.product_id} className="overflow-hidden">
-                  <CardHeader className="bg-gray-50/70">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <Badge variant={index === 0 ? "default" : "secondary"} className="mb-2">
-                          {index === 0 ? "가장 유사한 상품" : `${index + 1}번째 유사 상품`}
-                        </Badge>
-                        <CardTitle className="text-lg">{result.product_name}</CardTitle>
-                        <CardDescription className="flex items-center gap-2 pt-1">
-                          <Tag size={14} /> {result.category}
-                        </CardDescription>
+              {results.map((result, index) => {
+                const sentiment = getSentimentSummary(result.review_analysis);
+                return (
+                  <Card key={result.product_id} className="overflow-hidden">
+                    <CardHeader className="bg-gray-50/70">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <Badge variant={index === 0 ? "default" : "secondary"} className="mb-2">
+                            {index === 0 ? "가장 유사한 상품" : `${index + 1}번째 유사 상품`}
+                          </Badge>
+                          <CardTitle className="text-lg">{result.product_name}</CardTitle>
+                          <CardDescription className="flex items-center gap-2 pt-1">
+                            <Tag size={14} /> {result.category}
+                          </CardDescription>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm text-muted-foreground">유사도</p>
+                          <p className="text-2xl font-bold text-purple-700">{(result.similarity * 100).toFixed(1)}%</p>
+                        </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm text-muted-foreground">유사도</p>
-                        <p className="text-2xl font-bold text-purple-700">{(result.similarity * 100).toFixed(1)}%</p>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-4">
-                      <h4 className="font-semibold">상품 기본 정보</h4>
-                       <div className="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-md">
+                    </CardHeader>
+                    <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-4 md:col-span-1">
+                        <h4 className="font-semibold">상품 기본 정보</h4>
+                        <div className="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-md">
                           <span className="text-muted-foreground">가격</span>
                           <span className="font-mono">₹{result.discounted_price.toLocaleString()}</span>
                         </div>
@@ -330,33 +366,39 @@ export default function SearchPage() {
                           <span className="text-muted-foreground">리뷰 수</span>
                           <span>{result.rating_count.toLocaleString()} 개</span>
                         </div>
-                    </div>
-                     <div className="space-y-4">
+                      </div>
+                      <div className="space-y-4 md:col-span-2">
                         <h4 className="font-semibold">리뷰 종합 분석</h4>
-                        <div className="space-y-2">
-                          <Progress value={result.review_analysis.positive_percentage} className="h-2" />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                             <span>긍정 {result.review_analysis.positive_percentage.toFixed(0)}%</span>
-                             <span>중립 {result.review_analysis.neutral_percentage.toFixed(0)}%</span>
-                             <span>부정 {result.review_analysis.negative_percentage.toFixed(0)}%</span>
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 flex overflow-hidden">
+                          <div className="bg-green-500 h-2.5" style={{ width: `${result.review_analysis.positive_percentage}%` }}></div>
+                          <div className="bg-gray-400 h-2.5" style={{ width: `${result.review_analysis.neutral_percentage}%` }}></div>
+                          <div className="bg-red-500 h-2.5" style={{ width: `${result.review_analysis.negative_percentage}%` }}></div>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-green-600">긍정 {result.review_analysis.positive_percentage.toFixed(0)}%</span>
+                          <span className="text-gray-500">중립 {result.review_analysis.neutral_percentage.toFixed(0)}%</span>
+                          <span className="text-red-600">부정 {result.review_analysis.negative_percentage.toFixed(0)}%</span>
+                        </div>
+                        <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 mt-4 space-y-3">
+                          <p className="text-sm font-bold flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-blue-500" />AI 리뷰 분석: <span className={sentiment.color}>{sentiment.text}</span></p>
+                          <div>
+                            <p className="text-sm font-medium">주요 긍정 키워드</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {result.review_analysis.top_positive_keywords.map(kw => <Badge key={kw} variant="outline" className="text-green-700 border-green-200">{kw}</Badge>)}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">주요 부정 키워드</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="outline" className="border-red-300 text-red-700 bg-white hover:bg-red-50">{kw}</Badge>)}
+                            </div>
                           </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">주요 긍정 키워드</p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {result.review_analysis.top_positive_keywords.map(kw => <Badge key={kw} variant="outline" className="text-green-700 border-green-200">{kw}</Badge>)}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">주요 부정 키워드</p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {result.review_analysis.top_negative_keywords.map(kw => <Badge key={kw} variant="destructive">{kw}</Badge>)}
-                          </div>
-                        </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </div>
