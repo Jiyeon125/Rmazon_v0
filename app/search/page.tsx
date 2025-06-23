@@ -91,6 +91,26 @@ export default function SearchPage() {
   const [productCount, setProductCount] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // --- 파생 상태 (Memoization) ---
+  const cat1Options = useMemo(() => Object.keys(hierarchicalCategories), [hierarchicalCategories]);
+  const cat2Options = useMemo(() => cat1 ? Object.keys((hierarchicalCategories as any)[cat1] || {}) : [], [hierarchicalCategories, cat1]);
+  const cat3Options = useMemo(() => cat1 && cat2 ? Object.keys((hierarchicalCategories as any)[cat1]?.[cat2] || {}) : [], [hierarchicalCategories, cat1, cat2]);
+
+  // 카테고리 선택이 완료되었는지, 그리고 완료된 카테고리 문자열이 무엇인지 동적으로 결정
+  const { fullCategory, fullCategorySelected } = useMemo(() => {
+    if (!cat1) return { fullCategory: null, fullCategorySelected: false };
+
+    // 다음 레벨의 카테고리가 있는데 선택하지 않은 경우
+    if (cat2Options.length > 0 && !cat2) return { fullCategory: null, fullCategorySelected: false };
+    if (cat3Options.length > 0 && !cat3) return { fullCategory: null, fullCategorySelected: false };
+
+    // 모든 하위 카테고리가 선택되었을 때, 전체 카테고리 경로를 생성
+    const finalCategory = [cat1, cat2, cat3].filter(Boolean).join(" | ");
+    return { fullCategory: finalCategory, fullCategorySelected: true };
+  }, [cat1, cat2, cat3, cat2Options, cat3Options]);
+  
+  const discountedPrice = useMemo(() => price * (1 - discount / 100), [price, discount]);
+
   // --- 데이터 로딩 Effect ---
   // 1. 초기 계층형 카테고리 목록 로드
   useEffect(() => {
@@ -113,7 +133,6 @@ export default function SearchPage() {
 
   // 2. 카테고리 선택 시 가격 범위 로드
   useEffect(() => {
-    const fullCategory = cat1 && cat2 && cat3 ? `${cat1} | ${cat2} | ${cat3}` : null;
     if (!fullCategory) return;
 
     const fetchPriceRange = async () => {
@@ -139,11 +158,10 @@ export default function SearchPage() {
       }
     };
     fetchPriceRange();
-  }, [cat1, cat2, cat3]);
+  }, [fullCategory]);
 
   // 3. 카테고리 선택 시 상품 수 로드
   useEffect(() => {
-    const fullCategory = cat1 && cat2 && cat3 ? `${cat1} | ${cat2} | ${cat3}` : null;
     if (!fullCategory) {
       setProductCount(null);
       return;
@@ -163,15 +181,8 @@ export default function SearchPage() {
     };
 
     fetchProductCount();
-  }, [cat1, cat2, cat3]);
+  }, [fullCategory]);
   
-  // 파생 상태 (Memoization)
-  const cat1Options = useMemo(() => Object.keys(hierarchicalCategories), [hierarchicalCategories]);
-  const cat2Options = useMemo(() => cat1 ? Object.keys((hierarchicalCategories as any)[cat1] || {}) : [], [hierarchicalCategories, cat1]);
-  const cat3Options = useMemo(() => cat1 && cat2 ? Object.keys((hierarchicalCategories as any)[cat1]?.[cat2] || {}) : [], [hierarchicalCategories, cat1, cat2]);
-
-  const discountedPrice = useMemo(() => price * (1 - discount / 100), [price, discount]);
-
   // 카테고리 변경 핸들러
   const handleCat1Change = (value: string) => {
     setCat1(value);
@@ -185,17 +196,16 @@ export default function SearchPage() {
 
   // --- 이벤트 핸들러 ---
   const handleSearch = async () => {
-    const fullCategory = cat1 && cat2 && cat3 ? `${cat1} | ${cat2} | ${cat3}` : null;
     if (!description.trim() || !fullCategory) {
       setError("상품 설명과 카테고리를 모두 입력해주세요.");
       return;
     }
     
+    setHasSearched(true);
     setIsLoading(true);
     setError(null);
     setResults([]);
     setSimilarityWarning(null);
-    setHasSearched(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/search-similarity`, {
@@ -227,7 +237,7 @@ export default function SearchPage() {
           warnings.push("⚠️ 주의: 최고 유사도가 60% 미만입니다. 입력한 설명과 매우 유사한 제품이 거의 없으며, 유사 제품 목록의 정확도가 낮을 수 있습니다.");
         }
         if (avgSim < 0.5) {
-          warnings.push("⚠️ 주의: 평균 유사도가 50% 미만입니다. 입력한 설명이 다른 제품들과 전반적으로 크게 다르며, 입력 정보를 조정하여 더 정확한 결과를 얻을 수 있습니다.");
+          warnings.push("⚠️ 주의: 평균 유사도가 50% 미만입니다.입력한 설명이 다른 제품들과 전반적으로 크게 다르며, 입력 정보를 조정하여 더 정확한 결과를 얻을 수 있습니다.");
         }
       }
       setSimilarityWarning(warnings.join('|'));
@@ -238,8 +248,6 @@ export default function SearchPage() {
       setIsLoading(false);
     }
   };
-
-  const fullCategorySelected = cat1 && cat2 && cat3;
 
   return (
     <div className="flex flex-col h-full bg-gray-50/50">
@@ -264,12 +272,20 @@ export default function SearchPage() {
                     <SelectTrigger><SelectValue placeholder="대분류" /></SelectTrigger>
                     <SelectContent>{cat1Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
-                  <Select onValueChange={handleCat2Change} value={cat2} disabled={!cat1 || isDataLoading}>
-                    <SelectTrigger><SelectValue placeholder="중분류" /></SelectTrigger>
+                  <Select onValueChange={handleCat2Change} value={cat2} disabled={!cat1 || isDataLoading || cat2Options.length === 0}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={cat1 && cat2Options.length === 0 ? "(하위 분류 없음)" : "중분류"} />
+                    </SelectTrigger>
                     <SelectContent>{cat2Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
-                  <Select onValueChange={setCat3} value={cat3} disabled={!cat2 || isDataLoading}>
-                    <SelectTrigger><SelectValue placeholder="소분류" /></SelectTrigger>
+                  <Select onValueChange={setCat3} value={cat3} disabled={!cat2 || isDataLoading || cat3Options.length === 0}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={
+                        (cat1 && cat2Options.length === 0) 
+                        ? "(하위 분류 없음)" 
+                        : (cat2 && cat3Options.length === 0 ? "(하위 분류 없음)" : "소분류")
+                      } />
+                    </SelectTrigger>
                     <SelectContent>{cat3Options.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
@@ -366,17 +382,20 @@ export default function SearchPage() {
             </div>
           )}
 
-          {/* 초기 안내 블록: 검색 전(!hasSearched)에만 표시 */}
-          {!isLoading && !error && !hasSearched && (
+          {/* 1. 초기 상태 (검색 전) */}
+          {!isLoading && !hasSearched && (
             <div className="flex flex-col items-center justify-center h-full text-center bg-white rounded-lg p-8 shadow-sm">
-              <Sparkles className="w-16 h-16 text-gray-300 mb-4" />
-              <h3 className="text-xl font-semibold text-gray-600">분석 결과가 여기에 표시됩니다.</h3>
-              <p className="text-gray-400 mt-1">좌측에서 상품 정보를 입력하고 분석 버튼을 눌러주세요.</p>
+              <Sparkles className="w-16 h-16 text-purple-400 mb-4" />
+              <h3 className="text-xl font-semibold mb-1">유사 상품 분석 시작하기</h3>
+              <p className="text-gray-500 max-w-md">
+                좌측 패널에서 가상 상품의 카테고리, 설명, 가격 등을 설정한 후 '유사 상품 분석' 버튼을 눌러주세요.
+                입력된 정보와 유사한 실제 상품 목록 및 리뷰 분석 결과를 확인할 수 있습니다.
+              </p>
             </div>
           )}
 
-          {/* 결과 없음 블록: 검색 후(hasSearched) 결과가 없을 때만 표시 */}
-          {!isLoading && !error && hasSearched && results.length === 0 && (
+          {/* 2. 결과 없음 (검색 후) */}
+          {!isLoading && hasSearched && results.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center bg-white rounded-lg p-8 shadow-sm">
               <PackageSearch className="w-16 h-16 text-gray-300 mb-4" />
               <h3 className="text-xl font-semibold mb-1">결과 없음</h3>
@@ -384,8 +403,8 @@ export default function SearchPage() {
             </div>
           )}
 
-          {/* 결과 카드: 로딩/에러가 없고, 결과가 있을 때 렌더링 */}
-          {!isLoading && !error && results.length > 0 && (
+          {/* 3. 결과 카드 (검색 후) */}
+          {!isLoading && hasSearched && results.length > 0 && (
             <div className="space-y-6">
               {results.map((result, index) => {
                 const sentiment = getSentimentSummary(result.review_analysis);
