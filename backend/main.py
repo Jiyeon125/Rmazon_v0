@@ -12,6 +12,7 @@ from sklearn.feature_extraction import text
 import os
 import shutil
 from typing import List, Optional, Dict
+import numpy as np
 
 # --- Pydantic 모델 정의 ---
 # 요청 본문의 데이터 구조를 정의합니다.
@@ -75,57 +76,71 @@ app.add_middleware(
 ml_pipe = None
 tfidf_vectorizer = None
 tfidf_matrix = None
-df_products = pd.DataFrame()
+df_products = pd.DataFrame() # 상품 메타데이터 및 유사도 분석용
+df_reviews = pd.DataFrame() # 상품별 개별 리뷰 저장용
 DATA_FILE_PATH = os.path.join("data", "cleaned_amazon_0519.csv")
 
 # --- 핵심 로직: 데이터 로딩 및 모델 학습 ---
 def load_data_and_train_models():
-    global ml_pipe, tfidf_vectorizer, tfidf_matrix, df_products
+    global ml_pipe, tfidf_vectorizer, tfidf_matrix, df_products, df_reviews
     
     if not os.path.exists(DATA_FILE_PATH):
         print(f"⚠️ 데이터 파일이 존재하지 않습니다: {DATA_FILE_PATH}")
+        df_products, df_reviews = pd.DataFrame(), pd.DataFrame()
+        return
+
+    df_raw = pd.read_csv(DATA_FILE_PATH)
+    
+    required_columns = ['product_id', 'product_name', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
+    if any(col not in df_raw.columns for col in required_columns):
+        raise ValueError(f"필수 컬럼 중 일부가 누락되었습니다.")
+
+    # --- 1. 기본 클리닝 및 타입 변환 ---
+    df_raw['review_title'] = df_raw['review_title'].fillna('')
+    df_raw['review_content'] = df_raw['review_content'].fillna('')
+    for col in ['discounted_price', 'rating_count', 'rating']:
+        df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
+    df_raw.dropna(subset=['product_id', 'discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
+
+    # --- 2. 리뷰 분리 및 df_reviews 생성 ---
+    reviews_list = []
+    for _, row in df_raw.iterrows():
+        # review_content를 쉼표로 분리하여 개별 리뷰 리스트 생성
+        # 내용이 없는 빈 리뷰는 제외
+        contents = [c.strip() for c in str(row['review_content']).split(',') if c.strip()]
+        for content_part in contents:
+            reviews_list.append({
+                'product_id': row['product_id'],
+                'review_text': content_part
+            })
+    
+    df_reviews = pd.DataFrame(reviews_list)
+    
+    if df_reviews.empty:
+        print("⚠️ 리뷰 데이터를 분리한 후 처리할 데이터가 없습니다.")
         df_products = pd.DataFrame()
         return
 
-    df = pd.read_csv(DATA_FILE_PATH)
+    # --- 3. 유사도 분석용 df_products 생성 ---
+    # 상품별로 분리된 리뷰 텍스트를 다시 하나로 합쳐 'combined_text' 생성
+    df_aggregated_reviews = df_reviews.groupby('product_id')['review_text'].apply(lambda x: ' '.join(x)).reset_index()
+    df_aggregated_reviews.rename(columns={'review_text': 'combined_text'}, inplace=True)
+
+    # 원본 데이터에서 상품 메타데이터(리뷰 제외)를 가져와 결합
+    df_meta = df_raw.drop(columns=['review_title', 'review_content']).drop_duplicates(subset=['product_id']).set_index('product_id')
+    df_products = df_aggregated_reviews.merge(df_meta, on='product_id', how='left')
     
-    required_columns = ['product_id', 'product_name', 'review_title', 'review_content', 'discounted_price', 'rating_count', 'category_cleaned', 'rating']
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        raise ValueError(f"필수 컬럼이 누락되었습니다: {', '.join(missing_columns)}")
-
-    # 🚨 데이터 클리닝 및 전처리 로직 개선
-    df.drop_duplicates(subset=['product_id'], keep='first', inplace=True)
+    # 모델 학습에 필요한 컬럼이 모두 있는지 최종 확인
+    df_products.dropna(subset=['discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
     
-    # 텍스트 컬럼의 NaN 값을 빈 문자열로 대체 (FutureWarning 수정)
-    df['review_title'] = df['review_title'].fillna('')
-    df['review_content'] = df['review_content'].fillna('')
-
-    # 숫자형 컬럼 처리
-    df['discounted_price'] = pd.to_numeric(df['discounted_price'], errors='coerce')
-    df['rating_count'] = pd.to_numeric(df['rating_count'], errors='coerce')
-    df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
-
-    # 모델 학습에 필수적인 컬럼에 NaN이 있으면 해당 행 제거
-    df.dropna(subset=['discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
-
-    # rating_count가 0 이하인 데이터는 예측에 의미가 없으므로 제외
-    df = df[df['rating_count'] > 0].copy()
-    
-    df.reset_index(drop=True, inplace=True)
-    
-    # TF-IDF용 텍스트 합치기 (클리닝 이후에 수행)
-    df['combined_text'] = df['review_title'] + ' ' + df['review_content']
-
-    df_products = df.copy()
-
     if df_products.empty:
-        print("⚠️ 처리할 데이터가 없습니다. 모델 학습을 건너뜁니다.")
+        print("⚠️ 최종 상품 데이터가 비어있습니다. 모델 학습을 건너뜁니다.")
         return
-
-    # 3. 릿지 회귀 모델 학습 (별점 예측용)
-    X_ridge = df[['discounted_price', 'rating_count', 'category_cleaned']]
-    y_ridge = df['rating']
+        
+    # --- 4. 모델 학습 ---
+    # 릿지 회귀 모델 학습 (별점 예측용)
+    X_ridge = df_products[['discounted_price', 'rating_count', 'category_cleaned']]
+    y_ridge = df_products['rating']
     numeric_features = ['discounted_price', 'rating_count']
     categorical_features = ['category_cleaned']
     preprocessor = ColumnTransformer(
@@ -136,11 +151,11 @@ def load_data_and_train_models():
     ml_pipe.fit(X_ridge, y_ridge)
     print("✅ Ridge Regression model training complete!")
 
-    # 4. TF-IDF 모델 학습 (유사도 분석용)
+    # TF-IDF 모델 학습 (유사도 분석용)
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
     tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['combined_text'])
     print("✅ TF-IDF model training complete!")
-    print(f"📈 Total {len(df_products)} unique products loaded and models trained.")
+    print(f"📈 Total {len(df_products)} unique products and {len(df_reviews)} individual reviews loaded.")
 
 
 # --- 서버 시작 시 실행될 로직 ---
@@ -259,12 +274,6 @@ def advanced_review_analysis(reviews: List[str]) -> Dict:
         "review_count": len(reviews)
     }
 
-def calculate_price_similarity(price1: float, price2: float) -> float:
-   if price1 == 0 or price2 == 0: return 0
-   diff = abs(price1 - price2)
-   avg = (price1 + price2) / 2
-   return max(0, 1 - diff / avg)
-
 @app.get("/category-price-range", response_model=PriceRangeResponse)
 def get_category_price_range(category: str = Query(...)):
     """특정 카테고리의 최소 및 최대 가격을 반환합니다."""
@@ -285,51 +294,75 @@ def get_category_price_range(category: str = Query(...)):
 
 @app.post("/search-similarity", response_model=List[SimilarityResult])
 def search_similarity(request: SimilarityRequest):
+    """
+    입력된 상품 정보와 가장 유사한 상품 목록을 반환합니다.
+    유사도는 텍스트(TF-IDF)와 가격을 종합하여 계산됩니다.
+    각 유사 상품에 대해 개별적인 리뷰 분석을 수행합니다.
+    """
     if df_products.empty or tfidf_matrix is None:
-        raise HTTPException(status_code=503, detail="서버 데이터가 준비되지 않았습니다.")
+        raise HTTPException(status_code=503, detail="서버가 준비되지 않았거나 데이터가 없습니다.")
+    if not request.description.strip() or not request.category:
+        raise HTTPException(status_code=400, detail="상품 설명과 카테고리를 모두 입력해주세요.")
 
-    # 1. 텍스트 유사도 계산
-    input_vec = tfidf_vectorizer.transform([request.description])
-    text_similarities = cosine_similarity(input_vec, tfidf_matrix).flatten()
+    # 1. 텍스트 유사도 계산 (TF-IDF)
+    input_vector = tfidf_vectorizer.transform([request.description])
+    text_similarities = cosine_similarity(input_vector, tfidf_matrix).flatten()
 
-    # 2. 가격 및 할인율 유사도 계산
-    request_discounted_price = request.price * (1 - request.discount_percentage / 100)
-    price_similarities = df_products['discounted_price'].apply(lambda x: calculate_price_similarity(request_discounted_price, x))
-    discount_similarities = df_products['discount_percentage'].apply(lambda x: 1 - abs(request.discount_percentage - x) / 100)
-
-    # 3. 카테고리 일치 점수 계산 (매우 중요한 요소)
-    category_match_score = (df_products['category_cleaned'] == request.category).astype(int)
-
-    # 4. 최종 유사도 계산 (가중치 조정: 카테고리 일치에 높은 가중치 부여)
-    df_products['similarity'] = (
-        text_similarities * 0.4 + 
-        price_similarities * 0.2 + 
-        discount_similarities * 0.1 +
-        category_match_score * 0.3  # 카테고리 가중치 추가
-    )
+    # 2. 카테고리가 일치하는 상품만 필터링
+    category_mask = df_products['category_cleaned'] == request.category
     
-    # 5. 상위 3개 상품 선정
-    top_3_products = df_products.sort_values(by='similarity', ascending=False).head(3)
+    # 3. 종합 점수 계산
+    # 가격 유사도: 요청 가격과의 차이가 적을수록 높음 (정규화)
+    price_diff = np.abs(df_products['discounted_price'] - request.price)
+    # 0으로 나누는 것을 방지하기 위해 아주 작은 값(epsilon)을 더함
+    price_similarity = 1 - (price_diff / (price_diff.max() + 1e-6))
+    
+    # 종합 점수 = 텍스트 유사도 * 0.7 + 가격 유사도 * 0.3
+    combined_scores = (text_similarities * 0.7) + (price_similarity * 0.3)
+    
+    # 카테고리 마스크 적용
+    combined_scores[~category_mask] = 0
 
-    # 6. 결과 목록 생성 (리뷰 분석 포함)
+    # 4. 상위 5개 상품 선정
+    top_n = 5
+    # 점수가 0인 경우는 제외하고, 상위 N개를 찾음
+    valid_scores_indices = np.where(combined_scores > 0)[0]
+    if len(valid_scores_indices) == 0:
+        return []
+    
+    top_indices = valid_scores_indices[np.argsort(combined_scores[valid_scores_indices])[-top_n:]][::-1]
+
+    # 5. 최종 결과 생성 (상품별 개별 분석)
     results = []
-    for _, product in top_3_products.iterrows():
-        # 리뷰 데이터 추출
-        reviews = (str(product.get('review_title', '')) + ',' + str(product.get('review_content', ''))).split(',')
-        reviews = [r.strip() for r in reviews if r.strip()]
+    for idx in top_indices:
+        product_row = df_products.iloc[idx]
+        product_id = product_row['product_id']
         
-        # 리뷰 분석 실행
-        review_analysis_data = advanced_review_analysis(reviews)
+        # 상품별 개별 리뷰 추출
+        product_reviews = df_reviews[df_reviews['product_id'] == product_id]['review_text'].tolist()
         
-        results.append({
-            "product_id": product['product_id'],
-            "product_name": product['product_name'],
-            "similarity": product['similarity'],
-            "discounted_price": product['discounted_price'],
-            "rating": product['rating'],
-            "rating_count": product['rating_count'],
-            "review_analysis": review_analysis_data,
-        })
+        # 상품별 리뷰 분석 수행
+        if not product_reviews:
+            # 리뷰가 없는 경우 기본값 설정
+            review_analysis_result = {
+                'overall_sentiment': 'neutral',
+                'sentiment_distribution': {'positive': 0, 'neutral': 0, 'negative': 0},
+                'top_keywords': [], 'negative_concerns': [],
+                'summary': '리뷰 데이터가 부족하여 분석할 수 없습니다.',
+                'review_count': 0
+            }
+        else:
+            review_analysis_result = advanced_review_analysis(product_reviews)
+            
+        results.append(SimilarityResult(
+            product_id=product_id,
+            product_name=product_row['product_name'],
+            similarity=combined_scores[idx],
+            discounted_price=product_row['discounted_price'],
+            rating=product_row['rating'],
+            rating_count=product_row['rating_count'],
+            review_analysis=review_analysis_result
+        ))
         
     return results
 

@@ -291,7 +291,7 @@ export default function SearchPage() {
                             <p className="flex items-center gap-1 text-lg font-bold text-gray-900"><Star className="w-5 h-5 text-yellow-500 fill-yellow-400" />{product.rating.toFixed(1)}</p>
                          </div>
                          <div className="space-y-1">
-                            <p className="font-medium text-gray-700">리뷰 수</p>
+                            <p className="font-medium text-gray-700"> 별점 수</p>
                             <p className="text-lg font-bold text-gray-900">{product.rating_count.toLocaleString()}</p>
                          </div>
                       </div>
@@ -309,7 +309,7 @@ export default function SearchPage() {
                         
                         {/* 감성 분포 */}
                         <div>
-                          <p className="text-sm font-medium mb-1">감성 분포 (총 {product.review_analysis.review_count}개)</p>
+                          <p className="text-sm font-medium mb-1">감성 분포 (총 {product.review_analysis.review_count.toLocaleString()}개 리뷰 기반)</p>
                           <div className="w-full bg-gray-200 rounded-full h-2.5 flex overflow-hidden">
                             <div className="bg-green-500 h-2.5" style={{ width: `${(product.review_analysis.sentiment_distribution.positive / product.review_analysis.review_count) * 100}%` }}></div>
                             <div className="bg-gray-400 h-2.5" style={{ width: `${(product.review_analysis.sentiment_distribution.neutral / product.review_analysis.review_count) * 100}%` }}></div>

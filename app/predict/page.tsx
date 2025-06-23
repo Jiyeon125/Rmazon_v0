@@ -94,7 +94,7 @@ export default function PredictPage() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-8 flex justify-center items-start">
+    <div className="container mx-auto p-4 md:p-8 flex justify-center items-center min-h-[calc(100vh-8rem)]">
       <Card className="w-full max-w-lg">
         <CardHeader>
           <div className="flex items-center gap-3">

@@ -4,7 +4,7 @@ import { Search, Wand2, BarChart3 } from "lucide-react"
 
 export default function LandingPage() {
   return (
-    <div className="flex flex-col items-center justify-center text-center p-8">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 text-center p-4 pt-20">
       <div className="max-w-3xl">
         <h1 className="text-5xl font-extrabold text-gray-900 mb-4 tracking-tight">
           <span className="text-blue-600">Rmazon</span>에서<br/>
