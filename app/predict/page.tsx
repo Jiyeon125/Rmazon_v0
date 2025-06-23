@@ -36,6 +36,40 @@ interface HierarchicalCategories {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
+// --- Helper Function for Chart Data ---
+const processDistribution = (
+  distribution: DistributionBin[], 
+  userValue: number | null, 
+  predictedValue: number | null
+) => {
+  if (!distribution || distribution.length === 0) return [];
+
+  return distribution.map((bin, index) => {
+    const [start, end] = bin.name.split('-').map(s => parseInt(s.replace(/,/g, '')));
+    
+    // 마지막 bin인 경우, end 값을 포함하여 확인
+    const isLastBin = index === distribution.length - 1;
+
+    const isUserInRange = userValue !== null && (
+      isLastBin
+        ? userValue >= start && userValue <= end
+        : userValue >= start && userValue < end
+    );
+
+    const isPredictedInRange = predictedValue !== null && (
+      isLastBin
+        ? predictedValue >= start && predictedValue <= end
+        : predictedValue >= start && predictedValue < end
+    );
+
+    return {
+      ...bin,
+      isUser: isUserInRange,
+      isPredicted: isPredictedInRange,
+    };
+  });
+};
+
 export default function PredictPage() {
   // 상태 관리
   const [price, setPrice] = useState("");
@@ -160,6 +194,22 @@ export default function PredictPage() {
   
   const fullCategorySelected = cat1 && cat2 && cat3;
 
+  // Processed data for charts using the helper function
+  const processedPriceDistribution = useMemo(() => 
+    stats ? processDistribution(stats.price_distribution, parseFloat(price), null) : [],
+    [stats, price]
+  );
+
+  const processedReviewDistribution = useMemo(() =>
+    stats && predictionResult ? processDistribution(stats.review_count_distribution, null, predictionResult.predicted_review_count) : (stats ? processDistribution(stats.review_count_distribution, null, null) : []),
+    [stats, predictionResult]
+  );
+
+  const processedRatingDistribution = useMemo(() =>
+    stats && predictionResult ? processDistribution(stats.rating_distribution, null, predictionResult.predicted_star) : (stats ? processDistribution(stats.rating_distribution, null, null) : []),
+    [stats, predictionResult]
+  );
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -271,45 +321,71 @@ export default function PredictPage() {
                 {stats && (
                   <div className="space-y-8 pt-4">
                     <h3 className="text-lg font-semibold border-b pb-2">시장 내 분포도 분석</h3>
-                     <div>
-                      <Label className="text-sm">가격 분포 (Price Distribution)</Label>
-                       <p className="text-xs text-muted-foreground">
-                        입력 가격: <span className="font-bold">₹{parseFloat(price).toLocaleString()}</span> (상위 {(100 - predictionResult.price_percentile).toFixed(1)}%)
-                      </p>
-                      <ResponsiveContainer width="100%" height={150}>
-                        <BarChart data={stats.price_distribution} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
-                          <XAxis dataKey="name" fontSize={10} tick={{ fill: '#666' }} angle={-30} textAnchor="end" height={50} />
-                          <YAxis fontSize={12} tick={{ fill: '#666' }} />
-                          <Tooltip formatter={(value) => `${value}개`} />
-                          <Bar dataKey="count" fill="#8884d8" radius={[4, 4, 0, 0]}>
-                            {stats.price_distribution.map((entry, index) => {
-                              const entryPrice = parseFloat(entry.name.split('-')[0].replace(/,/g, ''));
-                              const inputPrice = parseFloat(price);
-                              return <Cell key={`cell-${index}`} fill={inputPrice >= entryPrice ? "#6d28d9" : "#c4b5fd"} />;
-                            })}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
+                     <div className="space-y-2">
+                      <h4 className="font-semibold">가격 분포</h4>
+                      <p className="text-xs text-muted-foreground">입력하신 가격은 시장 내에서 상위 {predictionResult.price_percentile.toFixed(1)}%에 위치합니다.</p>
+                      <div className="w-full h-40">
+                        <ResponsiveContainer>
+                          <BarChart data={processedPriceDistribution}>
+                            <XAxis dataKey="name" fontSize={10} tick={{ fill: '#6b7280' }} />
+                            <YAxis fontSize={10} tick={{ fill: '#6b7280' }} />
+                            <Tooltip
+                              contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '0.5rem' }} 
+                              labelStyle={{ fontWeight: 'bold' }}
+                              formatter={(value, name, props) => [`${props.payload.isUser ? '나의 가격' : '상품 수'}: ${value}`, null]}
+                            />
+                            <Bar dataKey="count">
+                              {processedPriceDistribution.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isUser ? "hsl(var(--primary))" : "hsl(var(--primary) / 0.2)"} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
-                     <div>
-                      <Label className="text-sm">리뷰 수 분포 (Review Count Distribution)</Label>
-                      <p className="text-xs text-muted-foreground">
-                        예상 리뷰 수: <span className="font-bold">{Math.round(predictionResult.predicted_review_count).toLocaleString()}개</span> (상위 {(100 - predictionResult.review_count_percentile).toFixed(1)}%)
-                      </p>
-                      <ResponsiveContainer width="100%" height={150}>
-                        <BarChart data={stats.review_count_distribution} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
-                           <XAxis dataKey="name" fontSize={10} tick={{ fill: '#666' }} angle={-30} textAnchor="end" height={50} />
-                          <YAxis fontSize={12} tick={{ fill: '#666' }} />
-                          <Tooltip formatter={(value) => `${value}개`} />
-                          <Bar dataKey="count" fill="#8884d8" radius={[4, 4, 0, 0]}>
-                             {stats.review_count_distribution.map((entry, index) => {
-                              const entryReviewCount = parseFloat(entry.name.split('-')[0].replace(/,/g, ''));
-                              const predictedReviewCount = predictionResult.predicted_review_count;
-                              return <Cell key={`cell-${index}`} fill={predictedReviewCount >= entryReviewCount ? "#6d28d9" : "#c4b5fd"} />;
-                            })}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
+                     <div className="space-y-2">
+                      <h4 className="font-semibold">리뷰 수 분포</h4>
+                      <p className="text-xs text-muted-foreground">예상 리뷰 수는 시장 내에서 상위 {predictionResult.review_count_percentile.toFixed(1)}%에 위치합니다.</p>
+                      <div className="w-full h-40">
+                        <ResponsiveContainer>
+                          <BarChart data={processedReviewDistribution}>
+                            <XAxis dataKey="name" fontSize={10} tick={{ fill: '#6b7280' }} />
+                            <YAxis fontSize={10} tick={{ fill: '#6b7280' }} />
+                            <Tooltip
+                              contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '0.5rem' }} 
+                              labelStyle={{ fontWeight: 'bold' }}
+                               formatter={(value, name, props) => [`${props.payload.isPredicted ? '예상 리뷰 수' : '상품 수'}: ${value}`, null]}
+                            />
+                            <Bar dataKey="count">
+                              {processedReviewDistribution.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isPredicted ? "hsl(var(--primary))" : "hsl(var(--primary) / 0.2)"} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                     <div className="space-y-2">
+                      <h4 className="font-semibold">평점 분포</h4>
+                      <p className="text-xs text-muted-foreground">예상 평점은 시장 내에서 상위 {predictionResult.rating_percentile.toFixed(1)}%에 위치합니다.</p>
+                      <div className="w-full h-40">
+                         <ResponsiveContainer>
+                          <BarChart data={processedRatingDistribution}>
+                            <XAxis dataKey="name" fontSize={10} tick={{ fill: '#6b7280' }} />
+                            <YAxis fontSize={10} tick={{ fill: '#6b7280' }} />
+                             <Tooltip
+                              contentStyle={{ fontSize: '12px', padding: '4px 8px', borderRadius: '0.5rem' }} 
+                              labelStyle={{ fontWeight: 'bold' }}
+                               formatter={(value, name, props) => [`${props.payload.isPredicted ? '예상 평점' : '상품 수'}: ${value}`, null]}
+                            />
+                            <Bar dataKey="count">
+                              {processedRatingDistribution.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.isPredicted ? "hsl(var(--primary))" : "hsl(var(--primary) / 0.2)"} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
                   </div>
                 )}
