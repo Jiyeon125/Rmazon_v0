@@ -381,53 +381,27 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
 def search_similarity(request: SimilarityRequest):
     """
     사용자 입력을 기반으로 3가지 요소를 종합하여 유사 상품을 검색합니다.
-    1. 키워드 점수: 입력 설명에 포함된 주요 기술 키워드(`TECH_KEYWORDS`)가
-                   각 상품 설명에 얼마나 포함되었는지에 따라 점수를 부여합니다.
-    2. 텍스트 유사도(TF-IDF): 입력 설명과 각 상품 설명 간의 의미적 유사도를 계산합니다.
-    3. 가격 유사도: 입력 가격과 각 상품 가격의 근접성을 점수화합니다.
-    최종 유사도는 이 세 가지 점수를 가중 합산하여 결정됩니다.
+    [현재 디버깅 중] - 텍스트 유사도(TF-IDF)만으로 점수를 계산하여 문제의 원인을 격리합니다.
     """
-    if df_products.empty or tfidf_vectorizer is None:
+    if df_products.empty or tfidf_vectorizer is None or tfidf_matrix is None:
         raise HTTPException(status_code=503, detail="서버가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.")
 
+    # 1. 특정 카테고리의 상품만 필터링
     df_filtered = df_products[df_products['category_cleaned'] == request.category].copy()
     if df_filtered.empty:
         return []
 
-    filtered_descriptions = df_filtered['about_product'].astype(str).fillna('')
+    # --- 문제 격리를 위해 텍스트 유사도만 계산 ---
+    filtered_indices = df_filtered.index.tolist()
+    filtered_tfidf_matrix = tfidf_matrix[filtered_indices]
+
     user_desc_vector = tfidf_vectorizer.transform([request.description])
-    text_similarities = cosine_similarity(user_desc_vector, tfidf_vectorizer.transform(filtered_descriptions)).flatten()
-    df_filtered['text_similarity'] = text_similarities
-
-    price_diff = np.abs(df_filtered['discounted_price'] - request.price)
-    max_price_diff = price_diff.max()
-    df_filtered['price_similarity'] = 1.0 if max_price_diff == 0 else 1 - (price_diff / max_price_diff)
-
-    user_keywords = {keyword for keyword in TECH_KEYWORDS if keyword in request.description.lower()}
+    text_similarities = cosine_similarity(user_desc_vector, filtered_tfidf_matrix).flatten()
     
-    if not user_keywords:
-        df_filtered['keyword_score'] = 0.0
-    else:
-        # 벡터화된 연산을 위해 apply 대신 str.contains 사용 준비
-        keyword_scores = np.zeros(len(df_filtered))
-        for keyword in user_keywords:
-            # 각 키워드가 포함되어 있으면 1점을 더함
-            keyword_scores += df_filtered['about_product'].astype(str).str.contains(keyword, case=False, na=False).astype(int)
-        
-        df_filtered['keyword_score'] = keyword_scores
-        
-        max_score = df_filtered['keyword_score'].max()
-        if max_score > 0:
-            df_filtered['keyword_score'] = df_filtered['keyword_score'] / max_score
-        else:
-            df_filtered['keyword_score'] = 0.0
+    # 최종 유사도를 오직 텍스트 유사도만으로 설정
+    df_filtered['similarity'] = text_similarities * 100
 
-    df_filtered['similarity'] = (
-        df_filtered['text_similarity'] * 0.6 +
-        df_filtered['price_similarity'] * 0.2 +
-        df_filtered['keyword_score'] * 0.2
-    ) * 100
-
+    # 상위 10개 결과 정렬 및 선택
     top_10_similar_products = df_filtered.sort_values(by='similarity', ascending=False).head(10)
     
     results = []
