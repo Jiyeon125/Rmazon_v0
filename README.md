@@ -53,13 +53,13 @@ graph TD;
     end;
 
     subgraph "프론트엔드 (Next.js @ :3000)";
-        FE["<b>Next.js / React</b><br/>- 유사 상품 검색 UI<br/>- 판매 지표 예측 UI<br/>- Recharts 시각화"];
+        FE["<b>Next.js / React</b><br/>유사 상품 검색 UI<br/>판매 지표 예측 UI<br/>Recharts 시각화"];
     end;
 
     subgraph "백엔드 (FastAPI @ :8000)";
         API["<b>FastAPI Server</b><br/>API 엔드포인트 제공<br/>(/search-similarity, /predict)"];
-        Engine["<b>핵심 분석 엔진</b><br/>- Pandas 데이터 처리<br/>- Scikit-learn 유사도/예측<br/>- VaderSentiment 감성 분석"];
-        Models["<b>머신러닝 모델</b><br/>(서버 시작 시 학습)<br/>- TF-IDF Vectorizer<br/>- Ridge 회귀 모델"];
+        Engine["<b>핵심 분석 엔진</b><br/>Pandas 데이터 처리<br/>Scikit-learn 유사도/예측<br/>VaderSentiment 감성 분석"];
+        Models["<b>머신러닝 모델</b><br/>(서버 시작 시 학습)<br/>TF-IDF Vectorizer<br/>Ridge 회귀 모델"];
     end;
     
     subgraph "데이터 저장소";
