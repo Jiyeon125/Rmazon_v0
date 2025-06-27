@@ -192,7 +192,7 @@ def load_data_and_train_models():
     # --- 3. 유사도 분석 및 예측 모델 학습용 df_products 생성 ---
     # 리뷰 데이터를 제외한 순수 상품 정보(메타데이터)만으로 DataFrame을 구성하고, 상품 ID 기준 중복을 제거합니다.
     df_meta_cols = ['product_id', 'product_name', 'about_product', 'category_cleaned', 'discounted_price', 'rating_count', 'rating']
-    df_products = df_raw[df_meta_cols].drop_duplicates(subset=['product_id']).copy()
+    df_products = df_raw[df_meta_cols].drop_duplicates(subset=['product_id']).copy() # type: ignore
     df_products.dropna(subset=['discounted_price', 'rating_count', 'rating', 'category_cleaned'], inplace=True)
 
     # --- 4. 모델 학습 ---
@@ -218,7 +218,7 @@ def load_data_and_train_models():
 
     # 모델 3: TF-IDF 모델 학습 (유사도 분석용)
     tfidf_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
-    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['about_product'])
+    tfidf_matrix = tfidf_vectorizer.fit_transform(df_products['about_product']) # type: ignore
     print("✅ TF-IDF model (based on product description) training complete!")
     
     # --- 5. 계층적 카테고리 데이터 생성 ---
@@ -281,7 +281,7 @@ def get_products(category: Optional[str] = Query(None)):
     target_df = df_products
     if category:
         target_df = df_products[df_products['category_cleaned'] == category]
-    return target_df[['product_id', 'product_name']].to_dict(orient='records')
+    return target_df[['product_id', 'product_name']].to_dict(orient='records') # type: ignore
 
 def advanced_review_analysis(reviews: List[str]) -> Dict[str, Any]:
     """
@@ -363,15 +363,15 @@ def get_category_stats(category: str = Query(..., description="통계 정보를 
         rating_distribution = rating_counts.value_counts().sort_index()
         return [DistributionBin(name=f"{rating:.1f}", count=int(count)) for rating, count in rating_distribution.items()]
 
-    price_dist = create_histogram(category_df['discounted_price'])
-    review_count_dist = create_histogram(category_df['rating_count'])
-    rating_dist = process_rating_distribution(category_df['rating'])
+    price_dist = create_histogram(category_df['discounted_price']) # type: ignore
+    review_count_dist = create_histogram(category_df['rating_count']) # type: ignore
+    rating_dist = process_rating_distribution(category_df['rating']) # type: ignore
 
     return CategoryStatsResponse(
-        min_price=float(category_df['discounted_price'].min()),
-        max_price=float(category_df['discounted_price'].max()),
-        min_review_count=float(category_df['rating_count'].min()),
-        max_review_count=float(category_df['rating_count'].max()),
+        min_price=float(category_df['discounted_price'].min()), # type: ignore
+        max_price=float(category_df['discounted_price'].max()), # type: ignore
+        min_review_count=float(category_df['rating_count'].min()), # type: ignore
+        max_review_count=float(category_df['rating_count'].max()), # type: ignore
         price_distribution=price_dist,
         review_count_distribution=review_count_dist,
         rating_distribution=rating_dist
@@ -402,7 +402,7 @@ def search_similarity(request: SimilarityRequest):
     df_filtered['similarity'] = text_similarities * 100
 
     # 상위 10개 결과 정렬 및 선택
-    top_10_similar_products = df_filtered.sort_values(by='similarity', ascending=False).head(10)
+    top_10_similar_products = df_filtered.sort_values(by='similarity', ascending=False).head(10) # type: ignore
     
     results = []
     for _, row in top_10_similar_products.iterrows():
@@ -432,7 +432,7 @@ def predict_star_rating(request: PredictionRequest):
         raise HTTPException(status_code=503, detail="모델이 아직 준비되지 않았습니다.")
     
     try:
-        input_data = pd.DataFrame([[request.price, request.category]], columns=['discounted_price', 'category_cleaned'])
+        input_data = pd.DataFrame([[request.price, request.category]], columns=['discounted_price', 'category_cleaned']) # type: ignore
         predicted_star = ml_pipe.predict(input_data)[0]
         predicted_review_count = review_count_pipe.predict(input_data)[0]
 
@@ -443,9 +443,9 @@ def predict_star_rating(request: PredictionRequest):
             from scipy.stats import percentileofscore
             return float(percentileofscore(series.dropna(), score, kind='weak'))
 
-        price_percentile = calculate_percentile(category_df['discounted_price'], request.price)
-        review_count_percentile = calculate_percentile(category_df['rating_count'], float(predicted_review_count))
-        rating_percentile = calculate_percentile(category_df['rating'], float(predicted_star))
+        price_percentile = calculate_percentile(category_df['discounted_price'], request.price) # type: ignore
+        review_count_percentile = calculate_percentile(category_df['rating_count'], float(predicted_review_count)) # type: ignore
+        rating_percentile = calculate_percentile(category_df['rating'], float(predicted_star)) # type: ignore
 
         return PredictionResponse(
             predicted_star=round(float(predicted_star), 2),
