@@ -66,15 +66,15 @@ graph TD;
          Data["<B>데이터 파일</B><br/>cleaned_amazon_0519.csv"];
     end;
 
-    Browser -- "1. 분석 요청" --> FE;
-    FE -- "2. API 요청 (Fetch)" --> API;
-    API -- "3. 분석 로직 실행" --> Engine;
-    Engine -- "4. 데이터 조회" --> Data;
-    Engine -- "5. 학습된 모델 활용" --> Models;
+    Browser -- "분석 요청" --> FE;
+    FE -- "API 요청 (Fetch)" --> API;
+    API -- "분석 로직 실행" --> Engine;
+    Engine -- "데이터 조회" --> Data;
+    Engine -- "학습된 모델 활용" --> Models;
     Models -- "데이터로 모델 학습" --> Data;
-    Engine -- "6. 분석 결과 반환" --> API;
-    API -- "7. 응답 (JSON)" --> FE;
-    FE -- "8. 결과 시각화" --> Browser;
+    Engine -- "분석 결과 반환" --> API;
+    API -- "응답 (JSON)" --> FE;
+    FE -- "결과 시각화" --> Browser;
 ```
 
 ### 2. '유사 상품 탐색' 기능 데이터 흐름 (시퀀스 다이어그램)
@@ -91,32 +91,32 @@ sequenceDiagram
     participant df_reviews as 리뷰 데이터<br/>(Pandas DataFrame)
     participant Vader_Model as 감성 분석기<br/>(VaderSentiment)
 
-    Client->>API: 1. 유사 상품 분석 요청 (설명, 가격, 카테고리)
+    Client->>API: 유사 상품 분석 요청 (설명, 가격, 카테고리)
     
     activate API
-    API->>Engine: 2. 분석 로직 실행
+    API->>Engine: 분석 로직 실행
     activate Engine
     
-    Engine->>df_products: 3. 카테고리로 1차 상품 필터링
+    Engine->>df_products: 카테고리로 1차 상품 필터링
     df_products-->>Engine: 필터링된 상품 목록
     
-    Engine->>TFIDF_Model: 4. 입력된 설명으로 텍스트 유사도 계산
+    Engine->>TFIDF_Model: 입력된 설명으로 텍스트 유사도 계산
     TFIDF_Model-->>Engine: 코사인 유사도 점수 배열
     
-    Engine->>Engine: 5. 유사도 점수 결합 및 상위 10개 선정
+    Engine->>Engine: 유사도 점수 결합 및 상위 10개 선정
     
     loop for each of top 10 products
-        Engine->>df_reviews: 6. Product ID로 관련 리뷰 조회
+        Engine->>df_reviews: Product ID로 관련 리뷰 조회
         df_reviews-->>Engine: 해당 상품의 모든 리뷰 텍스트
-        Engine->>Vader_Model: 7. 리뷰 텍스트 감성 분석 요청
+        Engine->>Vader_Model: 리뷰 텍스트 감성 분석 요청
         Vader_Model-->>Engine: 긍/부정 비율 및 핵심 키워드
     end
     
-    Engine->>Engine: 8. 최종 결과 데이터 조합 (JSON 생성)
-    Engine-->>API: 9. 분석 완료된 데이터 반환
+    Engine->>Engine: 최종 결과 데이터 조합 (JSON 생성)
+    Engine-->>API: 분석 완료된 데이터 반환
     deactivate Engine
     
-    API-->>Client: 10. 최종 결과 응답 (JSON)
+    API-->>Client: 최종 결과 응답 (JSON)
     deactivate API
 ```
 
