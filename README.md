@@ -31,12 +31,94 @@
 
 ## 시스템 아키텍처 (System Architecture)
 
-본 시스템은 최신 웹 기술 스택을 기반으로 프론트엔드와 백엔드가 명확하게 분리된 구조로 설계되었습니다.
+본 시스템은 최신 웹 기술 스택을 기반으로 프론트엔드와 백엔드가 명확하게 분리된 구조로 설계되었습니다. 
 
--   **프론트엔드 (Frontend):** Next.js 기반의 동적 사용자 인터페이스입니다. 사용자의 입력을 받아 백엔드 API와 비동기적으로 통신하고, 반환된 데이터를 다양한 차트와 테이블 형태로 시각화합니다.
--   **백엔드 (Backend):** FastAPI를 활용한 고성능 Python 서버입니다. 데이터 로딩 및 전처리, 머신러닝 모델 서빙, 핵심 분석 로직 수행 및 REST API 제공 역할을 담당합니다.
 
-*아래 다이어그램은 시스템의 전체적인 흐름을 나타냅니다.*
+-   **프론트엔드 (Frontend):** Next.js 기반의 동적 사용자 인터페이스입니다. 사용자의 입력을 받아 백엔드 API와 비동기적으로 통신하고, 반환된 데이터를 다양한 
+차트와 테이블 형태로 시각화합니다.
+-   **백엔드 (Backend):** FastAPI를 활용한 고성능 Python 서버입니다. 데이터 로딩 및 전처리, 머신러닝 모델 서빙, 핵심 분석 로직 수행 및 REST API 제공 역할을 
+담당합니다.
+
+
+아래 다이어그램들은 시스템의 전체 구조와 핵심 기능의 데이터 흐름을 보여줍니다.
+
+### 1. 전체 시스템 구성도
+
+이 다이어그램은 사용자의 요청이 프론트엔드와 백엔드를 거쳐 다시 사용자에게 시각화된 결과로 반환되기까지의 전체적인 흐름을 나타냅니다. 각 컴포넌트가 어떤 기술로 이루어져 있고 어떤 핵심 역할을 수행하는지 한눈에 파악할 수 있습니다.
+
+```mermaid
+graph TD;
+    subgraph "사용자 (Client)";
+        User("사용자") --> Browser("웹 브라우저");
+    end;
+
+    subgraph "프론트엔드 (Next.js @ :3000)";
+        FE["<b>Next.js / React</b><br/>- 유사 상품 검색 UI<br/>- 판매 지표 예측 UI<br/>- Recharts 시각화"];
+    end;
+
+    subgraph "백엔드 (FastAPI @ :8000)";
+        API["<b>FastAPI Server</b><br/>API 엔드포인트 제공<br/>(/search-similarity, /predict)"];
+        Engine["<b>핵심 분석 엔진</b><br/>- Pandas 데이터 처리<br/>- Scikit-learn 유사도/예측<br/>- VaderSentiment 감성 분석"];
+        Models["<b>머신러닝 모델</b><br/>(서버 시작 시 학습)<br/>- TF-IDF Vectorizer<br/>- Ridge 회귀 모델"];
+    end;
+    
+    subgraph "데이터 저장소";
+         Data["<B>데이터 파일</B><br/>cleaned_amazon_0519.csv"];
+    end;
+
+    Browser -- "1. 분석 요청" --> FE;
+    FE -- "2. API 요청 (Fetch)" --> API;
+    API -- "3. 분석 로직 실행" --> Engine;
+    Engine -- "4. 데이터 조회" --> Data;
+    Engine -- "5. 학습된 모델 활용" --> Models;
+    Models -- "데이터로 모델 학습" --> Data;
+    Engine -- "6. 분석 결과 반환" --> API;
+    API -- "7. 응답 (JSON)" --> FE;
+    FE -- "8. 결과 시각화" --> Browser;
+```
+
+### 2. '유사 상품 탐색' 기능 데이터 흐름 (시퀀스 다이어그램)
+
+이 다이어그램은 `유사 상품 탐색` 기능이 실행될 때, 백엔드 내부에서 각 모듈과 데이터가 어떤 순서로 상호작용하는지를 상세하게 보여줍니다. 사용자의 요청이 여러 분석 단계를 거쳐 최종 결과로 조합되는 과정을 이해할 수 있습니다.
+
+```mermaid
+sequenceDiagram
+    participant Client as 사용자/프론트엔드
+    participant API as FastAPI 엔드포인트<br/>(/search-similarity)
+    participant Engine as 분석 로직
+    participant TFIDF_Model as TF-IDF 모델<br/>(Vectorizer + Matrix)
+    participant df_products as 상품 데이터<br/>(Pandas DataFrame)
+    participant df_reviews as 리뷰 데이터<br/>(Pandas DataFrame)
+    participant Vader_Model as 감성 분석기<br/>(VaderSentiment)
+
+    Client->>API: 1. 유사 상품 분석 요청 (설명, 가격, 카테고리)
+    
+    activate API
+    API->>Engine: 2. 분석 로직 실행
+    activate Engine
+    
+    Engine->>df_products: 3. 카테고리로 1차 상품 필터링
+    df_products-->>Engine: 필터링된 상품 목록
+    
+    Engine->>TFIDF_Model: 4. 입력된 설명으로 텍스트 유사도 계산
+    TFIDF_Model-->>Engine: 코사인 유사도 점수 배열
+    
+    Engine->>Engine: 5. 유사도 점수 결합 및 상위 10개 선정
+    
+    loop for each of top 10 products
+        Engine->>df_reviews: 6. Product ID로 관련 리뷰 조회
+        df_reviews-->>Engine: 해당 상품의 모든 리뷰 텍스트
+        Engine->>Vader_Model: 7. 리뷰 텍스트 감성 분석 요청
+        Vader_Model-->>Engine: 긍/부정 비율 및 핵심 키워드
+    end
+    
+    Engine->>Engine: 8. 최종 결과 데이터 조합 (JSON 생성)
+    Engine-->>API: 9. 분석 완료된 데이터 반환
+    deactivate Engine
+    
+    API-->>Client: 10. 최종 결과 응답 (JSON)
+    deactivate API
+```
 
 ---
 
