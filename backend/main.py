@@ -33,10 +33,6 @@ W_PRICE = 0.3
 W_KEYWORD = 0.2
 
 # --- Pydantic 모델 정의 ---
-class Keyword(BaseModel):
-    word: str
-    count: int
-
 class PredictionRequest(BaseModel):
     price: float
     category: str
@@ -53,10 +49,6 @@ class SimilarityRequest(BaseModel):
     price: float
     discount_percentage: float
     category: str
-
-class Product(BaseModel):
-    product_id: str
-    product_name: str
 
 class ReviewAnalysis(BaseModel):
     positive_percentage: float

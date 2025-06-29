@@ -6,9 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag, ChevronsUpDown, PackageSearch, AlertTriangle } from "lucide-react"
+import { BarChart, Search, AlertCircle, Loader2, Star, ThumbsUp, ThumbsDown, MessageSquareQuote, Sparkles, Tag, PackageSearch, AlertTriangle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 
@@ -59,12 +58,6 @@ const getSentimentSummary = (analysis: ReviewAnalysis): { text: string; color: s
 };
 
 // --- 컴포넌트 ---
-
-const SentimentIcon = ({ sentiment }: { sentiment: 'positive' | 'negative' | 'neutral' }) => {
-  if (sentiment === 'positive') return <ThumbsUp className="w-5 h-5 text-green-500" />;
-  if (sentiment === 'negative') return <ThumbsDown className="w-5 h-5 text-red-500" />;
-  return <MessageSquareQuote className="w-5 h-5 text-gray-500" />;
-};
 
 const ReviewAnalysisCard = ({ analysis }: { analysis: ReviewAnalysis }) => {
   const sentiment = getSentimentSummary(analysis);
