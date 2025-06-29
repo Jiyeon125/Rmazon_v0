@@ -129,7 +129,7 @@ const ResultsDisplay = ({ results }: { results: SimilarityResult[] }) => {
               </div>
               <div className="text-right flex-shrink-0 ml-4">
                 <div className="text-sm text-muted-foreground">유사도</div>
-                <div className="text-2xl font-bold text-purple-600">{result.similarity.toFixed(1)}%</div>
+                <div className="text-2xl font-bold text-purple-600">{(result.similarity * 100).toFixed(1)}%</div>
               </div>
             </div>
           </CardHeader>
